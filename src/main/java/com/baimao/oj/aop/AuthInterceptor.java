@@ -29,7 +29,7 @@ public class AuthInterceptor {
     private UserService userService;
 
     /**
-     * 执行拦截
+     * 执行拦截：校验需要管理员权限的接口
      * 带有 @authCheck 注解的接口执行前会执行该切面，并把AuthCheck作为参数传进来
      * @param joinPoint
      * @param authCheck

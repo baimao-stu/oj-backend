@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 判题信息消息枚举
+ * 判题结果状态
  */
 public enum JudgeInfoMessageEnum {
 

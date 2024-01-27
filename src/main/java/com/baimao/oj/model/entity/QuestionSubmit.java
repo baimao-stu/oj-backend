@@ -42,7 +42,7 @@ public class QuestionSubmit implements Serializable {
     private String code;
 
     /**
-     * 判题信息（json数组）
+     * 判题信息（json数组，用了多少时间、内存）
      */
     private String judgeInfo;
 

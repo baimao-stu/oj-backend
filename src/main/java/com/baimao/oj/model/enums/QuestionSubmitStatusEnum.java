@@ -7,13 +7,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 题目提交状态枚举
+ * 题目提交状态枚举，（沙箱的判题状态：如沙箱正在判题或判题成功，不是用户提交的代码的执行状态JudgeInfoMessageEnum）
  */
 public enum QuestionSubmitStatusEnum {
 
     WAITING("等待中", 0),
     JUDGING("判题中", 1),
-    ACCEPTED("成功", 2),
+    SUCCESS("成功", 2),
     FAILED("失败", 3);
 
     private final String text;

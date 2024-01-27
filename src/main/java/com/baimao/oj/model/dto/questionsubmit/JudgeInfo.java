@@ -9,7 +9,7 @@ import lombok.Data;
 public class JudgeInfo {
 
     /**
-     * 提交状态
+     * 判题状态
      */
     private String message;
 
