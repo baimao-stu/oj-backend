@@ -1,10 +1,9 @@
 package com.baimao.oj.judge.codesangbox.impl;
 
 import com.baimao.oj.judge.codesangbox.CodeSandbox;
-import com.baimao.oj.judge.codesangbox.CodeSandboxProxy;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeRequest;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeResponse;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.enums.JudgeInfoMessageEnum;
 import com.baimao.oj.model.enums.QuestionSubmitStatusEnum;
 
@@ -24,7 +23,7 @@ public class SampleCodeSandbox implements CodeSandbox {
         ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
         executeCodeResponse.setOutput(input);
         executeCodeResponse.setMessage("测试成功");
-        executeCodeResponse.setStatus(QuestionSubmitStatusEnum.SUCCESS.getText());
+        executeCodeResponse.setStatus(QuestionSubmitStatusEnum.SUCCESS.getValue());
         JudgeInfo judgeInfo = new JudgeInfo();
         judgeInfo.setMessage(JudgeInfoMessageEnum.ACCEPTED.getText());
         judgeInfo.setMemory(100l);

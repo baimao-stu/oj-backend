@@ -1,6 +1,6 @@
 package com.baimao.oj.judge.strategy;
 
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 
 /**
  * @author baimao

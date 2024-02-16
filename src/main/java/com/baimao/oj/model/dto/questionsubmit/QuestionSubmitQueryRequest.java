@@ -34,6 +34,11 @@ public class QuestionSubmitQueryRequest extends PageRequest implements Serializa
      */
     private Long userId;
 
+    /**
+     * 判题结果（Accepted或Answer error等）
+     */
+    private String judgeStatus;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 

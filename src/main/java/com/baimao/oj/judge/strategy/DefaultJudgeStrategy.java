@@ -3,9 +3,8 @@ package com.baimao.oj.judge.strategy;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.model.dto.question.JudgeCase;
 import com.baimao.oj.model.dto.question.JudgeConfig;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.entity.Question;
-import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.enums.JudgeInfoMessageEnum;
 
 import java.util.List;
@@ -41,19 +40,20 @@ public class DefaultJudgeStrategy implements JudgeStrategy {
         Long timeLimit = judgeConfig.getTimeLimit();
         if(needMemory > memoryLimit) {
             judgeInfoMessageEnum = JudgeInfoMessageEnum.MEMORY_LIMIT_EXCEEDED;
-            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getValue());
+            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
             return judgeInfoResponse;
         }
         if(needTime > timeLimit) {
             judgeInfoMessageEnum = JudgeInfoMessageEnum.TIME_LIMIT_EXCEEDED;
-            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getValue());
+            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
             return judgeInfoResponse;
         }
 
-        // 2. 得到的输出结果数量不符合预期
+        // 2. 得到的输出结果数量不符合预期（程序执行测试用例时出错）
         if(outputList.size() != inputList.size()) {
             judgeInfoMessageEnum = JudgeInfoMessageEnum.WRONG_ANSWER;
-            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getValue());
+            judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
+            judgeInfoResponse.setErrorIndex(outputList.size() - 1);
             return judgeInfoResponse;
         }
         // 3. 依次判断每项输出是否与预期相等
@@ -61,12 +61,13 @@ public class DefaultJudgeStrategy implements JudgeStrategy {
             JudgeCase judgeCase = judgeCaseList.get(i);
             if(! judgeCase.getOutput().equals(outputList.get(i))){
                 judgeInfoMessageEnum = JudgeInfoMessageEnum.WRONG_ANSWER;
-                judgeInfoResponse.setMessage(judgeInfoMessageEnum.getValue());
+                judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
+                judgeInfoResponse.setErrorIndex(i);
                 return judgeInfoResponse;
             }
         }
 
-        judgeInfoResponse.setMessage(judgeInfoMessageEnum.getValue());
+        judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
         return judgeInfoResponse;
     }
 }

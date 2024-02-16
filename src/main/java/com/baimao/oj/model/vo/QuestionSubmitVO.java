@@ -1,7 +1,8 @@
 package com.baimao.oj.model.vo;
 
 import cn.hutool.json.JSONUtil;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
+import com.baimao.oj.model.dto.question.JudgeCase;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
@@ -47,6 +48,11 @@ public class QuestionSubmitVO {
      * 创建用户 id
      */
     private Long userId;
+
+    /**
+     * 答案错误时的测试用例
+     */
+    private JudgeCase errorCase;
 
     /**
      * 创建时间

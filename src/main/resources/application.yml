@@ -103,4 +103,4 @@ knife4j:
           - com.baimao.oj.controller
 
 codesandbox:
-  type: sample
+  type: remote

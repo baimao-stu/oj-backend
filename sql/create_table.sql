@@ -27,6 +27,7 @@ create table if not exists user
 ) comment '用户' collate = utf8mb4_unicode_ci;
 
 -- 题目表
+drop table question;
 create table if not exists question
 (
     id          bigint auto_increment comment 'id' primary key,
@@ -48,6 +49,7 @@ create table if not exists question
 ) comment '题目' collate = utf8mb4_unicode_ci;
 
 -- 题目提交表
+drop table question_submit;
 create table if not exists question_submit
 (
     id         bigint auto_increment comment 'id' primary key,
@@ -57,6 +59,7 @@ create table if not exists question_submit
     status     int      default 0                 not null comment '判题状态（0-带判题，1-判题中，2-成功，3-失败）',
     questionId bigint                             not null comment '题目 id',
     userId     bigint                             not null comment '创建用户 id',
+    errorCase  text                               null comment '答案错误时的测试用例',
     createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete   tinyint  default 0                 not null comment '是否删除',

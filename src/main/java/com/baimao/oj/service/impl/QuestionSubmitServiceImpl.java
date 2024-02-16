@@ -1,7 +1,13 @@
 package com.baimao.oj.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baimao.oj.judge.JudgeService;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
+import com.baimao.oj.model.dto.question.JudgeCase;
+import com.baimao.oj.model.vo.QuestionVO;
+import com.baimao.oj.model.vo.UserVO;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -27,6 +33,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import java.beans.Transient;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -56,7 +64,8 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * @return
      */
     @Override
-    public Long doQuestionSubmit(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
+    @Transient
+    public QuestionSubmit doQuestionSubmit(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
         //1. 校验编程语言是否合理
         String language = questionSubmitAddRequest.getLanguage();
         QuestionSubmitLanguageEnum languageEnum = QuestionSubmitLanguageEnum.getEnumByValue(language);
@@ -86,12 +95,35 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         }
 
         Long questionSubmitId = questionSubmit.getId();
-        /** 异步执行判题服务 */
-        CompletableFuture.runAsync(() -> {
-            judgeService.doJudge(questionSubmitId);
-        });
+        /**4. 异步执行判题服务 */
+//        CompletableFuture.runAsync(() -> {
+//            judgeService.doJudge(questionSubmitId);
+//        });
 
-        return questionSubmitId;
+        QuestionSubmit questionSubmitResponse = judgeService.doJudge(questionSubmitId);
+
+        // 修改题目的提交次数与通过次数
+        String judgeInfoStr = questionSubmitResponse.getJudgeInfo();
+        JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
+        question.setSubNum(question.getSubNum() + 1);
+        if("Accepted".equals(judgeInfo.getMessage())) {
+            question.setAcceptedNum(question.getAcceptedNum() + 1);
+        }
+        boolean update = questionService.updateById(question);
+        if(!update){
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,"题目更新失败");
+        }
+
+        return questionSubmitResponse;
+    }
+
+
+    @Override
+    @Transient
+    public QuestionSubmitVO doQuestionSubmitVO(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
+        QuestionSubmit questionSubmit = doQuestionSubmit(questionSubmitAddRequest, loginUser);
+        QuestionSubmitVO questionSubmitVO = getQuestionSubmitVO(questionSubmit, loginUser);
+        return questionSubmitVO;
     }
 
     /**
@@ -112,12 +144,15 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         Long userId = questionSubmitQueryRequest.getUserId();
         String sortField = questionSubmitQueryRequest.getSortField();
         String sortOrder = questionSubmitQueryRequest.getSortOrder();
+        String judgeStatus = questionSubmitQueryRequest.getJudgeStatus();
 
         //拼接查询条件
         queryWrapper.eq(StringUtils.isNotBlank(language), "language", language);
         queryWrapper.eq(QuestionSubmitStatusEnum.getEnumByValue(status) != null, "status", status);
         queryWrapper.eq(ObjectUtils.isNotEmpty(questionId), "questionId", questionId);
         queryWrapper.eq(ObjectUtils.isNotEmpty(userId), "userId", userId);
+        /** 相应的判题结果 */
+        queryWrapper.like(ObjectUtils.isNotEmpty(judgeStatus), "judgeInfo", judgeStatus);
 
         queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
@@ -138,6 +173,15 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         long userId = loginUser.getId();
         if(userId != questionSubmit.getUserId() && !userService.isAdmin(loginUser)){
             questionSubmitVO.setCode(null);
+        }
+        Long questionId = questionSubmit.getQuestionId();
+        QuestionVO questionVO = questionService.getQuestionVO(questionService.getById(questionId), null);
+        questionSubmitVO.setQuestionVO(questionVO);
+        UserVO userVO = userService.getUserVO(userService.getById(loginUser));
+        questionSubmitVO.setUserVO(userVO);
+        String errorCaseStr = questionSubmit.getErrorCase();
+        if(StrUtil.isNotBlank(errorCaseStr)) {
+            questionSubmitVO.setErrorCase(JSONUtil.toBean(errorCaseStr, JudgeCase.class));
         }
         return questionSubmitVO;
     }

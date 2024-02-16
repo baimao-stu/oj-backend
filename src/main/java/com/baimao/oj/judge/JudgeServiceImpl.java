@@ -8,27 +8,19 @@ import com.baimao.oj.judge.codesangbox.CodeSandboxFactory;
 import com.baimao.oj.judge.codesangbox.CodeSandboxProxy;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeRequest;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeResponse;
-import com.baimao.oj.judge.strategy.DefaultJudgeStrategy;
 import com.baimao.oj.judge.strategy.JudgeContext;
-import com.baimao.oj.judge.strategy.JudgeStrategy;
 import com.baimao.oj.model.dto.question.JudgeCase;
-import com.baimao.oj.model.dto.question.JudgeConfig;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.entity.Question;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.enums.JudgeInfoMessageEnum;
-import com.baimao.oj.model.enums.QuestionSubmitLanguageEnum;
 import com.baimao.oj.model.enums.QuestionSubmitStatusEnum;
-import com.baimao.oj.model.vo.QuestionSubmitVO;
 import com.baimao.oj.service.QuestionService;
 import com.baimao.oj.service.QuestionSubmitService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import springfox.documentation.spring.web.json.Json;
 
 import javax.annotation.Resource;
-import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -85,6 +77,7 @@ public class JudgeServiceImpl implements JudgeService {
         List<JudgeCase> judgeCaseList = JSONUtil.toList(judgeCaseStr, JudgeCase.class);
         //获取题目测试输入用例组
         List<String> inputList = judgeCaseList.stream().map(JudgeCase::getInput).collect(Collectors.toList());
+        /** 创建指定类型的代码沙箱（代理类） */
         CodeSandbox codeSandbox = CodeSandboxFactory.newInstance(type);
         codeSandbox = new CodeSandboxProxy(codeSandbox);
         ExecuteCodeRequest request = ExecuteCodeRequest.builder()
@@ -92,24 +85,47 @@ public class JudgeServiceImpl implements JudgeService {
                 .input(inputList)
                 .language(language)
                 .build();
-        ExecuteCodeResponse executeCodeResponse = codeSandbox.executeCode(request);
 
-        /** 5）执行判断逻辑：根据沙箱执行结果判断结果是否正确，设置题目的判题结果等 */
-        JudgeContext judgeContext = new JudgeContext();
-        judgeContext.setInputList(inputList);
-        judgeContext.setOutputList(executeCodeResponse.getOutput());
-        judgeContext.setJudgeCaseList(judgeCaseList);
-        judgeContext.setJudgeInfo(executeCodeResponse.getJudgeInfo());
-        judgeContext.setQuestion(question);
-        judgeContext.setQuestionSubmit(questionSubmit);
-        /** 策略决策执行对应的判题逻辑 */
+        /** 执行代码 */
+        ExecuteCodeResponse executeCodeResponse = codeSandbox.executeCode(request);
+        Integer status = executeCodeResponse.getStatus();
+        /** 沙箱执行程序过程出错*/
+        JudgeInfo judgeInfo = new JudgeInfo();
+        if(status == 2) {
+            JudgeInfoMessageEnum judgeInfoMessageEnum = JudgeInfoMessageEnum.COMPILE_ERROR;
+            judgeInfo.setMessage(judgeInfoMessageEnum.getText());
+            judgeInfo.setMemory(0L);
+            judgeInfo.setTime(0L);
+        }
+        else if(status == 3) {
+            JudgeInfoMessageEnum judgeInfoMessageEnum = JudgeInfoMessageEnum.RUNTIME_ERROR;
+            judgeInfo.setMessage(judgeInfoMessageEnum.getText());
+            judgeInfo.setMemory(0L);
+            judgeInfo.setTime(0L);
+        }else {
+            /** 5）执行判断逻辑：根据沙箱执行结果判断结果是否正确，设置题目的判题结果等 */
+            JudgeContext judgeContext = new JudgeContext();
+            judgeContext.setInputList(inputList);
+            judgeContext.setOutputList(executeCodeResponse.getOutput());
+            judgeContext.setJudgeCaseList(judgeCaseList);
+            judgeContext.setJudgeInfo(executeCodeResponse.getJudgeInfo());
+            judgeContext.setQuestion(question);
+            judgeContext.setQuestionSubmit(questionSubmit);
+            /** 策略模式：根据不同的编程语言决策执行对应的判题逻辑（比对结果） */
 //        JudgeStrategy judgeStrategy = new DefaultJudgeStrategy();
-        JudgeInfo judgeInfo = judgeManager.doJudge(judgeContext);
+            judgeInfo = judgeManager.doJudge(judgeContext);
+        }
+
         //修改数据库的判题状态
         questionSubmitUpdate = new QuestionSubmit();
         questionSubmitUpdate.setStatus(QuestionSubmitStatusEnum.SUCCESS.getValue());    //修改判题状态
         questionSubmitUpdate.setId(questionSubmitId);
         questionSubmitUpdate.setJudgeInfo(JSONUtil.toJsonStr(judgeInfo));   //修改判题结果
+        if(judgeInfo.getErrorIndex() != null) {
+            JudgeCase judgeCase = judgeCaseList.get(judgeInfo.getErrorIndex());
+            questionSubmitUpdate.setErrorCase(JSONUtil.toJsonStr(judgeCase));
+        }
+
         update = questionSubmitService.updateById(questionSubmitUpdate);
         if(!update) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"题目提交状态更新错误");

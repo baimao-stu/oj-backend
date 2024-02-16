@@ -1,7 +1,7 @@
 package com.baimao.oj.judge.strategy;
 
 import com.baimao.oj.model.dto.question.JudgeCase;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.entity.Question;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import lombok.Data;
@@ -45,4 +45,5 @@ public class JudgeContext {
      * 题目的提交信息
      */
     private QuestionSubmit questionSubmit;
+
 }

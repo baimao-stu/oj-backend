@@ -1,4 +1,4 @@
-package com.baimao.oj.model.dto.questionsubmit;
+package com.baimao.oj.judge.codesangbox.model;
 
 import lombok.Data;
 
@@ -22,5 +22,10 @@ public class JudgeInfo {
      * 用户的代码花费的时间
      */
     private Long time;
+
+    /**
+     * 执行哪个测试用例时出错（使程序出错或输出答案不对）
+     */
+    private Integer errorIndex;
 
 }

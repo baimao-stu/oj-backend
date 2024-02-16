@@ -77,6 +77,9 @@ public class QuestionVO {
      */
     private UserVO userVO;
 
+    //测试用例的数量
+    private Integer judgeCaseNumber;
+
     private static final long serialVersionUID = 1L;
 
     /**
@@ -118,6 +121,7 @@ public class QuestionVO {
         questionVO.setTags(tagList);
         String judgeConfigStr = question.getJudgeConfig();
         questionVO.setJudgeConfig(JSONUtil.toBean(judgeConfigStr,JudgeConfig.class));
+        String judgeCase = question.getJudgeCase();
         return questionVO;
     }
 }

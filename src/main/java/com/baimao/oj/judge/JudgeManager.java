@@ -4,8 +4,7 @@ import com.baimao.oj.judge.strategy.DefaultJudgeStrategy;
 import com.baimao.oj.judge.strategy.JavaJudgeStrategy;
 import com.baimao.oj.judge.strategy.JudgeContext;
 import com.baimao.oj.judge.strategy.JudgeStrategy;
-import com.baimao.oj.model.dto.questionsubmit.JudgeInfo;
-import com.baimao.oj.model.entity.QuestionSubmit;
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import org.springframework.stereotype.Service;
 
 /**

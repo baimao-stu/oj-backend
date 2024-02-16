@@ -1,6 +1,11 @@
 package com.baimao.oj.controller;
 
 import cn.hutool.json.JSONUtil;
+import com.baimao.oj.model.dto.questionsubmit.QuestionSubmitAddRequest;
+import com.baimao.oj.model.dto.questionsubmit.QuestionSubmitQueryRequest;
+import com.baimao.oj.model.entity.QuestionSubmit;
+import com.baimao.oj.model.vo.QuestionSubmitVO;
+import com.baimao.oj.service.QuestionSubmitService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baimao.oj.annotation.AuthCheck;
 import com.baimao.oj.common.BaseResponse;
@@ -282,6 +287,63 @@ public class QuestionController {
         }
         boolean result = questionService.updateById(question);
         return ResultUtils.success(result);
+    }
+
+
+    /**
+     * 提交代码相关
+     */
+    @Resource
+    private QuestionSubmitService questionSubmitService;
+
+    /**
+     * 题目提交
+     * @param questionSubmitAddRequest
+     * @param request
+     * @return 提交记录的 id
+     */
+    @PostMapping("/question_submit/do_submit")
+    public BaseResponse<QuestionSubmit> doQuestionSubmit(@RequestBody QuestionSubmitAddRequest questionSubmitAddRequest,
+                                               HttpServletRequest request) {
+        if (questionSubmitAddRequest == null || questionSubmitAddRequest.getQuestionId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 登录才能提交，获取当前已登录的用户
+        final User loginUser = userService.getLoginUser(request);
+        QuestionSubmit questionSubmit = questionSubmitService.doQuestionSubmit(questionSubmitAddRequest, loginUser);
+        return ResultUtils.success(questionSubmit);
+    }
+
+    @PostMapping("/question_submit/do_submit_vo")
+    public BaseResponse<QuestionSubmitVO> doQuestionSubmitVO(@RequestBody QuestionSubmitAddRequest questionSubmitAddRequest,
+                                                         HttpServletRequest request) {
+        if (questionSubmitAddRequest == null || questionSubmitAddRequest.getQuestionId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 登录才能提交，获取当前已登录的用户
+        final User loginUser = userService.getLoginUser(request);
+        QuestionSubmitVO questionSubmitVO = questionSubmitService.doQuestionSubmitVO(questionSubmitAddRequest, loginUser);
+        return ResultUtils.success(questionSubmitVO);
+    }
+
+    /**
+     * 分页获取问题提交列表（除了管理员，只有用户自己能看到详细代码）
+     * @param questionSubmitQueryRequest
+     * @return
+     */
+    @PostMapping("/question_submit/list/page")
+    public BaseResponse<Page<QuestionSubmitVO>> listQuestionSubmitByPage(
+            @RequestBody QuestionSubmitQueryRequest questionSubmitQueryRequest, HttpServletRequest request) {
+        long current = questionSubmitQueryRequest.getCurrent();
+        long size = questionSubmitQueryRequest.getPageSize();
+        //1. 查询到的是从数据库查到的题目提交列表，要做脱敏返回VO
+
+        Page<QuestionSubmit> questionSubmitPage = questionSubmitService.page(new Page<>(current, size),
+                questionSubmitService.getQueryWrapper(questionSubmitQueryRequest));
+        //2. 将查到的题目提交列表脱敏为VO
+        final User loginUser = userService.getLoginUser(request);
+        Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage, loginUser);
+        return ResultUtils.success(questionSubmitVOPage);
     }
 
 }
