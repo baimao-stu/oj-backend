@@ -56,13 +56,19 @@ public class JavaJudgeStrategy implements JudgeStrategy {
         if(outputList.size() != inputList.size()) {
             judgeInfoMessageEnum = JudgeInfoMessageEnum.WRONG_ANSWER;
             judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
-            judgeInfoResponse.setErrorIndex(outputList.size() - 1);
+            if(outputList.size() > 0) {
+                judgeInfoResponse.setErrorIndex(outputList.size() - 1);
+            }
             return judgeInfoResponse;
         }
         // 3. 依次判断每项输出是否与预期相等
         for (int i = 0; i < judgeCaseList.size(); i++) {
             JudgeCase judgeCase = judgeCaseList.get(i);
-            if(! judgeCase.getOutput().equals(outputList.get(i))){
+            /**去除结尾的换行符*/
+            String regex = "[\r\n]+$";
+            String regexOutput = judgeCase.getOutput().replaceAll(regex,"");
+            String regexOutputI = outputList.get(i).replaceAll(regex,"");
+            if(! regexOutput.equals(regexOutputI)){
                 judgeInfoMessageEnum = JudgeInfoMessageEnum.WRONG_ANSWER;
                 judgeInfoResponse.setMessage(judgeInfoMessageEnum.getText());
                 judgeInfoResponse.setErrorIndex(i);

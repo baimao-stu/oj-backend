@@ -1,6 +1,4 @@
 # 数据库初始化
-# @author <a href="https://github.com/liyupi">程序员鱼皮</a>
-# @from <a href="https://yupi.icu">编程导航知识星球</a>
 
 -- 创建库
 create database if not exists yuoj;
@@ -63,30 +61,63 @@ create table if not exists question_submit
     createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete   tinyint  default 0                 not null comment '是否删除',
+    contestId  tinyint                            null comment '竞赛ID（contest.id，可为NULL表示非竞赛提交）',
     index idx_postId (questionId),
     index idx_userId (userId)
 ) comment '题目提交';
 
--- 帖子点赞表（硬删除）
-create table if not exists post_thumb
-(
-    id         bigint auto_increment comment 'id' primary key,
-    postId     bigint                             not null comment '帖子 id',
-    userId     bigint                             not null comment '创建用户 id',
-    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
-    updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
-    index idx_postId (postId),
-    index idx_userId (userId)
-) comment '帖子点赞';
+# 默认添加一个管理员账户admin，密码12345678（加密）
+insert into user(userAccount, userPassword, userName, userRole)
+values ('admin', 'b2da29e9d11a96e368c9ca52cc815218', 'admin', 'admin');
 
--- 帖子收藏表（硬删除）
-create table if not exists post_favour
+
+-- 竞赛表
+create table if not exists contest
+(
+    id          bigint auto_increment comment 'id' primary key,
+    title       varchar(512)                       not null comment '竞赛标题',
+    description text                               null comment '竞赛描述（非必要，可为NULL）',
+    type        INT                                not null comment '竞赛类型（0-基础、1-提高、2-进阶）',
+    isPublic    INT      default 0                 not null comment '是否公开（0-不公开、1-公开）',
+    pLimit      int                                not null comment '上限人数',
+    startTime   datetime                           not null comment '开始时间',
+    endTime     datetime                           not null comment '结束时间',
+    userId      bigint                             not null comment '创建用户 id',
+    createTime  datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime  datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete    tinyint  default 0                 not null comment '是否删除',
+    index idx_userId (userId)
+) comment '竞赛表' collate = utf8mb4_unicode_ci;
+
+-- 竞赛题目关联表
+create table if not exists contest_question
 (
     id         bigint auto_increment comment 'id' primary key,
-    postId     bigint                             not null comment '帖子 id',
-    userId     bigint                             not null comment '创建用户 id',
+    contestId  bigint                             not null comment '竞赛ID（关联contest.id）',
+    questionId bigint                             not null comment '题目ID（关联question.id）',
+    sequence   int                                not null comment '题目序号（在竞赛中的顺序）',
     createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
-    index idx_postId (postId),
+    isDelete   tinyint  default 0                 not null comment '是否删除',
+    index idx_questionId (questionId),
+    index idx_userId (contestId)
+) comment '竞赛题目关联表' collate = utf8mb4_unicode_ci;
+
+
+-- 用户竞赛报名表
+create table if not exists registrations
+(
+    id         bigint auto_increment comment 'id' primary key,
+    contestId  bigint                             not null comment '竞赛ID（关联contest.id）',
+    userId     bigint                             not null comment '用户ID（关联user.id）',
+    joinTime   datetime                           not null comment '报名时间',
+    rank       int                                not null comment '比赛排名',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete   tinyint  default 0                 not null comment '是否删除',
     index idx_userId (userId)
-) comment '帖子收藏';
+) comment '用户竞赛报名表' collate = utf8mb4_unicode_ci;
+
+
+
+

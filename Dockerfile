@@ -1,15 +1,36 @@
-# Docker 镜像构建
-# @author <a href="https://github.com/liyupi">程序员鱼皮</a>
-# @from <a href="https://yupi.icu">编程导航知识星球</a>
-FROM maven:3.8.1-jdk-8-slim as builder
+### 1. 在本地maven构建 ###
 
-# Copy local code to the container image.
+# 基础镜像
+FROM openjdk:8-jdk-alpine
+
+# docker 内部的指定工作目录
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
 
-# Build a release artifact.
-RUN mvn package -DskipTests
+# 将 jar 包添加到工作目录，比如 target/oj-backend-0.0.1-SNAPSHOT.jar
+#ADD target/oj-backend-0.0.1-SNAPSHOT.jar .
+ADD ./oj-backend-0.0.1-SNAPSHOT.jar .
+VOLUME ./.mysql-data:/var/lib/mysql
 
-# Run the web service on container startup.
-CMD ["java","-jar","/app/target/springboot-init-0.0.1-SNAPSHOT.jar","--spring.profiles.active=prod"]
+# 说明会暴露的端口，实际启动还得自己指定
+EXPOSE 50000
+
+# RUN mvn package -DskipTests
+
+# 启动命令
+ENTRYPOINT ["java","-jar","/app/oj-backend-0.0.1-SNAPSHOT.jar","--spring.profiles.active=prod"]
+
+### 2. 在容器里maven构建 ###
+
+#FROM maven:3.5-jdk-8-alpine as builder
+#
+#WORKDIR /app
+#COPY pom.xml .
+#COPY src ./src
+#
+#EXPOSE 50000
+## 在docker容器里打包
+#RUN mvn package -DskipTests
+#VOLUME ./.mysql-data:/var/lib/mysql
+#
+## 启动容器时自动执行的命令，与ENTRYPOINT（更灵活）差不多
+#CMD ["java","-jar","/app/oj-backend-0.0.1-SNAPSHOT.jar","--spring.profiles.active=prod"]

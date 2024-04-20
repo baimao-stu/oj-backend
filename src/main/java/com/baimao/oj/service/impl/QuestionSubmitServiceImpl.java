@@ -8,6 +8,7 @@ import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.dto.question.JudgeCase;
 import com.baimao.oj.model.vo.QuestionVO;
 import com.baimao.oj.model.vo.UserVO;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -177,7 +178,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         Long questionId = questionSubmit.getQuestionId();
         QuestionVO questionVO = questionService.getQuestionVO(questionService.getById(questionId), null);
         questionSubmitVO.setQuestionVO(questionVO);
-        UserVO userVO = userService.getUserVO(userService.getById(loginUser));
+        UserVO userVO = userService.getUserVO(userService.getById(userId));
         questionSubmitVO.setUserVO(userVO);
         String errorCaseStr = questionSubmit.getErrorCase();
         if(StrUtil.isNotBlank(errorCaseStr)) {
@@ -208,6 +209,15 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
                 questionSubmit -> getQuestionSubmitVO(questionSubmit, loginUser)).collect(Collectors.toList());
         questionSubmitVOPage.setRecords(questionSubmitVOList);
         return questionSubmitVOPage;
+    }
+
+    @Override
+    public List<QuestionSubmit> getQuestionSubmitPageByCIdAndUId(Long contestId, Long userId) {
+        LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(QuestionSubmit::getContestId,contestId);
+        queryWrapper.eq(QuestionSubmit::getUserId,userId);
+        queryWrapper.orderByDesc(QuestionSubmit::getCreateTime);
+        return this.list(queryWrapper);
     }
 
 }

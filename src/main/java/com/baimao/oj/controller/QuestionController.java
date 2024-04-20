@@ -6,6 +6,7 @@ import com.baimao.oj.model.dto.questionsubmit.QuestionSubmitQueryRequest;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.vo.QuestionSubmitVO;
 import com.baimao.oj.service.QuestionSubmitService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baimao.oj.annotation.AuthCheck;
 import com.baimao.oj.common.BaseResponse;
@@ -66,6 +67,8 @@ public class QuestionController {
         }
         List<JudgeCase> judgeCase = questionAddRequest.getJudgeCase();
         if(judgeCase != null) {
+            /** 给每个测试用例的输出加个换行符 */
+            judgeCase.stream().forEach(item -> item.setOutput(item.getOutput() + "\n"));
             question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
         }
         JudgeConfig judgeConfig = questionAddRequest.getJudgeConfig();
@@ -105,7 +108,16 @@ public class QuestionController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean b = questionService.removeById(id);
-        return ResultUtils.success(b);
+        if(!b) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR);
+        }
+        LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(QuestionSubmit::getQuestionId, id);
+        boolean remove = questionSubmitService.remove(queryWrapper);
+        if(!remove) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR);
+        }
+        return ResultUtils.success(remove);
     }
 
     /**
@@ -128,6 +140,9 @@ public class QuestionController {
         }
         List<JudgeCase> judgeCase = questionUpdateRequest.getJudgeCase();
         if(judgeCase != null) {
+            /** 给每个测试用例的输出补充换行符 */
+//            judgeCase.stream().forEach(item -> item.setOutput(item.getOutput().replaceAll("\\s+$", "") + "\n"));
+            System.out.println(judgeCase);
             question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
         }
         JudgeConfig judgeConfig = questionUpdateRequest.getJudgeConfig();

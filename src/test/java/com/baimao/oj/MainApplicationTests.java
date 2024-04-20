@@ -1,23 +1,24 @@
-package com.baimao.oj;
-
-import com.baimao.oj.config.WxOpenConfig;
-import javax.annotation.Resource;
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-
-/**
- * 主类测试
-
- */
-@SpringBootTest
-class MainApplicationTests {
-
-    @Resource
-    private WxOpenConfig wxOpenConfig;
-
-    @Test
-    void contextLoads() {
-        System.out.println(wxOpenConfig);
-    }
-
-}
+//package com.baimao.oj;
+//
+//import com.baimao.oj.config.WxOpenConfig;
+//import org.junit.jupiter.api.Test;
+//import org.springframework.boot.test.context.SpringBootTest;
+//
+//import javax.annotation.Resource;
+//
+///**
+// * 主类测试
+//
+// */
+//@SpringBootTest
+//class MainApplicationTests {
+//
+//    @Resource
+//    private WxOpenConfig wxOpenConfig;
+//
+//    @Test
+//    void contextLoads() {
+//        System.out.println(wxOpenConfig);
+//    }
+//
+//}

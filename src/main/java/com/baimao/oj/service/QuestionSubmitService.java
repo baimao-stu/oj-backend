@@ -9,6 +9,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.baimao.oj.model.entity.User;
 import com.baimao.oj.model.vo.QuestionSubmitVO;
 
+import java.util.List;
+
 /**
  *
  */
@@ -51,4 +53,8 @@ public interface QuestionSubmitService extends IService<QuestionSubmit> {
      */
     Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage,User loginUser);
 
+    /**
+     * 某个比赛下某个用户的提交记录
+     */
+    List<QuestionSubmit> getQuestionSubmitPageByCIdAndUId(Long contestId, Long userId);
 }
