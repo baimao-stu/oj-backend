@@ -37,6 +37,8 @@ import javax.annotation.Resource;
 import java.beans.Transient;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -87,6 +89,12 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         questionSubmit.setQuestionId(questionId);
         questionSubmit.setCode(questionSubmitAddRequest.getCode());
         questionSubmit.setLanguage(questionSubmitAddRequest.getLanguage());
+        /** 如果为比赛情况下提交，设置比赛id */
+        Long contestId = questionSubmitAddRequest.getContestId();
+        if(ObjectUtils.isNotEmpty(contestId)) {
+            questionSubmit.setContestId(contestId);
+        }
+
         //4. 设置初始状态
         questionSubmit.setStatus(QuestionSubmitStatusEnum.WAITING.getValue());
         questionSubmit.setJudgeInfo("{}");
@@ -164,15 +172,15 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * 根据QuestionSubmit转换为问题展示信息（QuestionSubmitVO）【脱敏】
      *
      * @param questionSubmit
-     * @param loginUser
+     * @param submitUser
      * @return
      */
     @Override
-    public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User loginUser) {
+    public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User submitUser) {
         QuestionSubmitVO questionSubmitVO = QuestionSubmitVO.objToVo(questionSubmit);
         /**脱敏：仅本人和管理员可以看见自己（提交的userId和登陆用户的Id相同）提交的代码（答案）*/
-        long userId = loginUser.getId();
-        if(userId != questionSubmit.getUserId() && !userService.isAdmin(loginUser)){
+        long userId = submitUser.getId();
+        if(userId != questionSubmit.getUserId() && !userService.isAdmin(submitUser)){
             questionSubmitVO.setCode(null);
         }
         Long questionId = questionSubmit.getQuestionId();
@@ -191,23 +199,24 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * 把分页查询的题目提交列表QuestionSubmit列表转为QuestionSubmitVO列表，即上面方法的循环
      *
      * @param questionSubmitPage
-     * @param loginUser
      * @return
      */
     @Override
-    public Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage, User loginUser) {
+    public Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage) {
         List<QuestionSubmit> questionSubmitList = questionSubmitPage.getRecords();
         Page<QuestionSubmitVO> questionSubmitVOPage = new Page<>(questionSubmitPage.getCurrent(), questionSubmitPage.getSize(), questionSubmitPage.getTotal());
+
         if (CollUtil.isEmpty(questionSubmitList)) {
             return questionSubmitVOPage;
         }
         // 1. 获取所有问题提交的用户信息
-//        Set<Long> userIdSet = questionSubmitList.stream().map(QuestionSubmit::getUserId).collect(Collectors.toSet());
-//        Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream().collect(Collectors.groupingBy(User::getId));
+        Set<Long> userIdSet = questionSubmitList.stream().map(QuestionSubmit::getUserId).collect(Collectors.toSet());
+        Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream().collect(Collectors.groupingBy(User::getId));
         // 2. 填充信息，QuestionSubmit转换为QuestionSubmitVO
         List<QuestionSubmitVO> questionSubmitVOList = questionSubmitList.stream().map(
-                questionSubmit -> getQuestionSubmitVO(questionSubmit, loginUser)).collect(Collectors.toList());
+                questionSubmit -> getQuestionSubmitVO(questionSubmit, userIdUserListMap.get(questionSubmit.getUserId()).get(0))).collect(Collectors.toList());
         questionSubmitVOPage.setRecords(questionSubmitVOList);
+
         return questionSubmitVOPage;
     }
 

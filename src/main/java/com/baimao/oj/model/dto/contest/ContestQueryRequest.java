@@ -3,6 +3,7 @@ package com.baimao.oj.model.dto.contest;
 import com.baimao.oj.common.PageRequest;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -16,12 +17,6 @@ import java.util.Date;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class ContestQueryRequest extends PageRequest implements Serializable {
-
-    /**
-     * id
-     */
-    @TableId(type = IdType.AUTO)
-    private Long id;
 
     /**
      * 竞赛标题
@@ -38,11 +33,13 @@ public class ContestQueryRequest extends PageRequest implements Serializable {
     /**
      * 开始时间
      */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date startTime;
 
     /**
      * 结束时间
      */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date endTime;
 
     /**
@@ -54,5 +51,10 @@ public class ContestQueryRequest extends PageRequest implements Serializable {
      * 用户id
      */
     private Long userId;
+
+    /**
+     * 创建时间（用来排序）
+     */
+    private Date createTime;
 
 }

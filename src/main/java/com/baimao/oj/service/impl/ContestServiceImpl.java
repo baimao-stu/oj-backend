@@ -8,10 +8,12 @@ import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.exception.ThrowUtils;
 import com.baimao.oj.model.dto.contest.ContestQueryRequest;
 import com.baimao.oj.model.entity.ContestQuestion;
+import com.baimao.oj.model.entity.Registrations;
 import com.baimao.oj.model.entity.User;
 import com.baimao.oj.model.vo.ContestVO;
 import com.baimao.oj.model.vo.UserVO;
 import com.baimao.oj.service.ContestQuestionService;
+import com.baimao.oj.service.RegistrationsService;
 import com.baimao.oj.service.UserService;
 import com.baimao.oj.utils.SqlUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -21,8 +23,10 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baimao.oj.model.entity.Contest;
 import com.baimao.oj.service.ContestService;
 import com.baimao.oj.mapper.ContestMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +39,7 @@ import java.util.stream.Collectors;
  *
  */
 @Service
+@Slf4j
 public class ContestServiceImpl extends ServiceImpl<ContestMapper, Contest>
         implements ContestService {
 
@@ -44,6 +49,10 @@ public class ContestServiceImpl extends ServiceImpl<ContestMapper, Contest>
 
     @Resource
     private ContestQuestionService contestQuestionService;
+
+    @Resource
+    @Lazy
+    private RegistrationsService registrationsService;
 
     @Override
     public void validContest(Contest contest, boolean add) {
@@ -119,22 +128,22 @@ public class ContestServiceImpl extends ServiceImpl<ContestMapper, Contest>
      * @return
      */
     @Override
-    public QueryWrapper<Contest> getQueryWrapper(ContestQueryRequest contestQueryRequest) {
+    public QueryWrapper<Contest> getQueryWrapper(ContestQueryRequest contestQueryRequest,HttpServletRequest request) {
         QueryWrapper<Contest> queryWrapper = new QueryWrapper<>();
         if (contestQueryRequest == null) {
             return queryWrapper;
         }
-        Long id = contestQueryRequest.getId();
         String title = contestQueryRequest.getTitle();
         Integer type = contestQueryRequest.getType();
 //        Date startTime = contestQueryRequest.getStartTime();
 //        Date endTime = contestQueryRequest.getEndTime();
-        Long userId = contestQueryRequest.getUserId();
+//        Long userId = contestQueryRequest.getUserId();
         String userName = contestQueryRequest.getUserName();
         String sortField = contestQueryRequest.getSortField();
         String sortOrder = contestQueryRequest.getSortOrder();
 
         QueryWrapper<User> userQueryWrapper = new QueryWrapper<>();
+        /** 根据举办者名字模糊查找比赛 */
         userQueryWrapper.like(StringUtils.isNotBlank(userName), "userName", userName);
         List<Long> userIdList = userService.list(userQueryWrapper)
                 .stream().map(User::getId).collect(Collectors.toList());
@@ -143,8 +152,6 @@ public class ContestServiceImpl extends ServiceImpl<ContestMapper, Contest>
         //拼接查询条件
         queryWrapper.like(StringUtils.isNotBlank(title), "title", title);
         queryWrapper.in(ObjectUtils.isNotEmpty(userIdList), "userId", userIdList);
-        queryWrapper.eq(ObjectUtils.isNotEmpty(id), "id", id);
-        queryWrapper.eq(ObjectUtils.isNotEmpty(userId), "userId", userId);
         queryWrapper.eq(ObjectUtils.isNotEmpty(type), "type", type);
         queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
@@ -221,6 +228,40 @@ public class ContestServiceImpl extends ServiceImpl<ContestMapper, Contest>
         }
 
         return true;
+    }
+
+    @Override
+    @Transactional
+    public Long saveContest(Contest contest, List<Long> questionIdList,Long userId) {
+        boolean result = this.save(contest);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
+        /**
+         * 关联比赛-题目表
+         */
+        long newContestId = contest.getId();
+        List<ContestQuestion> contestQuestionList = new ArrayList<>();
+        for (int i = 0; i < questionIdList.size(); i++) {
+            ContestQuestion contestQuestion = ContestQuestion.builder()
+                    .contestId(newContestId).questionId(questionIdList.get(i)).sequence(i).build();
+            contestQuestionList.add(contestQuestion);
+        }
+        log.info(contestQuestionList.toString());
+        boolean result2 = contestQuestionService.saveBatch(contestQuestionList);
+        ThrowUtils.throwIf(!result2, ErrorCode.OPERATION_ERROR);
+
+        /**
+         * 创建人自动报名该比赛
+         */
+        Registrations registration = new Registrations();
+        registration.setContestId(newContestId);
+        registration.setUserId(userId);
+        registration.setJoinTime(new Date());
+        registration.setRank(0);    //排名默认设置为0
+        boolean save = registrationsService.save(registration);
+        ThrowUtils.throwIf(!save, ErrorCode.OPERATION_ERROR);
+
+        return newContestId;
     }
 }
 

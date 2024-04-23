@@ -25,6 +25,11 @@ public class QuestionSubmitAddRequest implements Serializable {
      */
     private Long questionId;
 
+    /**
+     * 竞赛ID（contest.id，可为NULL表示非竞赛提交）
+     */
+    private Long contestId;
+
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 

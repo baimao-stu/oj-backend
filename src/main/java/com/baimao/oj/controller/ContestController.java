@@ -1,5 +1,6 @@
 package com.baimao.oj.controller;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.annotation.AuthCheck;
 import com.baimao.oj.common.BaseResponse;
@@ -12,15 +13,19 @@ import com.baimao.oj.exception.ThrowUtils;
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.dto.contest.*;
 import com.baimao.oj.model.entity.*;
-import com.baimao.oj.model.vo.ContestUserVO;
-import com.baimao.oj.model.vo.ContestVO;
-import com.baimao.oj.model.vo.QuestionVO;
-import com.baimao.oj.model.vo.UserVO;
+import com.baimao.oj.model.vo.*;
 import com.baimao.oj.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.Info;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Description;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -78,23 +83,8 @@ public class ContestController {
         contestService.validContest(contest, true);
         User loginUser = userService.getLoginUser(request);
         contest.setUserId(loginUser.getId());
-        boolean result = contestService.save(contest);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
 
-        /**
-         * 关联比赛-题目表
-         */
-        long newContestId = contest.getId();
-        List<ContestQuestion> contestQuestionList = new ArrayList<>();
-        for (int i = 0; i < questionIdList.size(); i++) {
-            ContestQuestion contestQuestion = ContestQuestion.builder()
-                    .contestId(newContestId).questionId(questionIdList.get(i)).sequence(i).build();
-            contestQuestionList.add(contestQuestion);
-        }
-        log.info(contestQuestionList.toString());
-        boolean result2 = contestQuestionService.saveBatch(contestQuestionList);
-        ThrowUtils.throwIf(!result2, ErrorCode.OPERATION_ERROR);
-
+        long newContestId = contestService.saveContest(contest,questionIdList,loginUser.getId());
         return ResultUtils.success(newContestId);
     }
 
@@ -238,8 +228,16 @@ public class ContestController {
         long size = contestQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+
+        User loginUser = userService.getLoginUser(request);
+        QueryWrapper<Contest> queryWrapper = contestService.getQueryWrapper(contestQueryRequest, request);
+        /** 比赛是公开的，或者是自己创建的，才能查看*/
+        queryWrapper.and(wrapper -> {
+            wrapper.eq("isPublic",1).or().eq("userId",loginUser.getId());
+        });
         Page<Contest> contestPage = contestService.page(new Page<>(current, size),
-                contestService.getQueryWrapper(contestQueryRequest));
+                queryWrapper);
+
         return ResultUtils.success(contestService.getContestVOPage(contestPage, request));
     }
 
@@ -256,15 +254,17 @@ public class ContestController {
         if (contestQueryRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User loginUser = userService.getLoginUser(request);
-        /**将查询的userId改为当前登录用户*/
-        contestQueryRequest.setUserId(loginUser.getId());
         long current = contestQueryRequest.getCurrent();
         long size = contestQueryRequest.getPageSize();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+
+        User loginUser = userService.getLoginUser(request);
+        QueryWrapper<Contest> queryWrapper = contestService.getQueryWrapper(contestQueryRequest, request);
+        /** 比赛是自己创建的，才能查看*/
+        queryWrapper.eq("userId",loginUser.getId());
         Page<Contest> contestPage = contestService.page(new Page<>(current, size),
-                contestService.getQueryWrapper(contestQueryRequest));
+                queryWrapper);
         return ResultUtils.success(contestService.getContestVOPage(contestPage, request));
     }
 
@@ -335,13 +335,14 @@ public class ContestController {
     }
 
     /**
-     * 获取当前用户某个比赛的报名记录
+     * 获取 当前用户 某个比赛 的报名记录（即用户是否报名了某个比赛）
      *
      * @param contestId
      * @param request
      * @return
      */
     @PostMapping("/get/registrationByContestId")
+    @ApiOperation("用户是否报名某个比赛")
     public BaseResponse<Registrations> getRegistrationByContestId(Long contestId, HttpServletRequest request) {
         if (contestId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -352,6 +353,39 @@ public class ContestController {
         queryWrapper.eq(Registrations::getUserId,loginUser.getId());
         Registrations registration = registrationsService.getOne(queryWrapper);
         return ResultUtils.success(registration);
+    }
+
+    /**
+     * 获取当去用户的报名的比赛列表
+     *
+     * @param contestQueryRequest
+     * @param request
+     * @return
+     */
+    @PostMapping("/list/myJoinContestVOPage")
+    public BaseResponse<Page<ContestVO>> listMyJoinContestVOPage(@RequestBody ContestQueryRequest contestQueryRequest,
+                                                                 HttpServletRequest request) {
+        if (contestQueryRequest == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        long current = contestQueryRequest.getCurrent();
+        long size = contestQueryRequest.getPageSize();
+        // 限制爬虫
+        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        /** 当前用户的所有报名的contestId */
+        LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Registrations::getUserId,loginUser.getId());
+        List<Long> contestIdList = registrationsService.list(queryWrapper)
+                .stream().map(Registrations::getContestId).collect(Collectors.toList());
+        if(contestIdList.size() == 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,"获取报名用户异常");
+        }
+        QueryWrapper<Contest> queryWrapper2 = contestService.getQueryWrapper(contestQueryRequest,request);
+        queryWrapper2.in("id", contestIdList);
+        /** 获取用户所有报名的比赛 */
+        Page<Contest> contestPage = contestService.page(new Page<>(current, size), queryWrapper2);
+        return ResultUtils.success(contestService.getContestVOPage(contestPage, request));
     }
 
     /**
@@ -382,6 +416,7 @@ public class ContestController {
         List<User> userList = userService.list(queryWrapper2);
         //报名该比赛的用户VO列表
         List<UserVO> userVOList = userService.getUserVO(userList);
+
 
 
         List<ContestUserVO> contestUserVOList = new ArrayList<>();
@@ -458,9 +493,41 @@ public class ContestController {
             log.info(contestUserVO.toString());
         }
 
+        Collections.sort(contestUserVOList);
         Page<ContestUserVO> contestUserVOPage = new Page<>(current,size);
         contestUserVOPage.setRecords(contestUserVOList);
         return ResultUtils.success(contestUserVOPage);
+    }
+
+    /**
+     * 获取某个比赛的报名人数
+     * @param contestId
+     * @param request
+     * @return
+     */
+    @GetMapping("/get/count/registration")
+    @ApiOperation("获取某个比赛的报名人数")
+    public BaseResponse<Long> getRegistrationCount(Long contestId, HttpServletRequest request) {
+        long count = registrationsService.getRegistrationCountByContestId(contestId);
+        return ResultUtils.success(count);
+    }
+
+    /**
+     * 获取某个比赛的题目数量
+     * @param contestId
+     * @param request
+     * @return
+     */
+    @GetMapping("/get/count/question")
+    @ApiOperation("获取某个比赛的题目数量")
+    public BaseResponse<Long> getQuestionCount(Long contestId, HttpServletRequest request) {
+        if (contestId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        LambdaQueryWrapper<ContestQuestion> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(ContestQuestion::getContestId,contestId);
+        long count = contestQuestionService.count(queryWrapper);
+        return ResultUtils.success(count);
     }
 
 
@@ -473,20 +540,27 @@ public class ContestController {
      * @return
      */
     @PostMapping("/list/questionVOByContestId")
-    public BaseResponse<List<QuestionVO>> listQuestionVOByContestId(Long contestId, HttpServletRequest request) {
+    public BaseResponse<List<ContestQuestionVO>> listContestQuestionVOByContestId(Long contestId, HttpServletRequest request) {
         if(contestId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         //获取竞赛下的所有题目id
         LambdaQueryWrapper<ContestQuestion> queryWrapper1 = new LambdaQueryWrapper<>();
         queryWrapper1.eq(ContestQuestion::getContestId,contestId);
-        List<Long> questionIdList = contestQuestionService.list(queryWrapper1)
-                .stream().map(ContestQuestion::getQuestionId).collect(Collectors.toList());
+        List<ContestQuestion> contestQuestionList = contestQuestionService.list(queryWrapper1);
+        Collections.sort(contestQuestionList);
+        List<String> questionIdList = contestQuestionList
+                .stream().map(contestQuestion -> contestQuestion.getQuestionId().toString()).collect(Collectors.toList());
+        if(questionIdList.size() == 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,"比赛题目为空");
+        }
         log.info("竞赛下的题目id列表：" + questionIdList);
 
         //获取竞赛下的所有题目
         LambdaQueryWrapper<Question> queryWrapper2 = new LambdaQueryWrapper<>();
         queryWrapper2.in(Question::getId,questionIdList);
+        /** 按查到的题目序号排序 */
+        queryWrapper2.last("order by field(id," + String.join(",",questionIdList) + ")");
         List<Question> questionList = questionService.list(queryWrapper2);
         log.info("竞赛下的题目列表：" + questionList);
 
@@ -494,7 +568,25 @@ public class ContestController {
         questionPage.setRecords(questionList);
         List<QuestionVO> questionVOList = questionService.getQuestionVOPage(questionPage, request).getRecords();
 
-        return ResultUtils.success(questionVOList);
+        List<ContestQuestionVO> contestQuestionVOList = new ArrayList<>();
+        /**
+         * 每道题目的提交情况
+         */
+        User loginUser = userService.getLoginUser(request);
+        long userId = loginUser.getId();
+        for (int i = 0;i < questionVOList.size();i ++) {
+            LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(QuestionSubmit::getContestId, contestId);
+            queryWrapper.eq(QuestionSubmit::getQuestionId, questionVOList.get(i).getId());
+            queryWrapper.eq(QuestionSubmit::getUserId, userId);
+            long count = questionSubmitService.count(queryWrapper);
+            ContestQuestionVO contestQuestionVO = new ContestQuestionVO();
+            BeanUtils.copyProperties(questionVOList.get(i),contestQuestionVO);
+            contestQuestionVO.setIsSubmit(count > 0);
+            contestQuestionVOList.add(contestQuestionVO);
+        }
+
+        return ResultUtils.success(contestQuestionVOList);
     }
 
 }

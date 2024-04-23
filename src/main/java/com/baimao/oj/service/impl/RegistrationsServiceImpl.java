@@ -63,6 +63,24 @@ public class RegistrationsServiceImpl extends ServiceImpl<RegistrationsMapper, R
             throw new BusinessException(ErrorCode.OPERATION_ERROR,"比赛时间已开始，不能再报名！");
         }
 
+        Long regisCount = getRegistrationCountByContestId(contestId);
+        /**
+         * 人数已达上限，不能再报名
+         */
+        if(regisCount + 1 > contest.getPLimit()) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,"报名人数已达上限");
+        }
+
+    }
+
+    @Override
+    public Long getRegistrationCountByContestId(Long contestId) {
+        if (contestId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Registrations::getContestId,contestId);
+        return this.count(queryWrapper);
     }
 }
 

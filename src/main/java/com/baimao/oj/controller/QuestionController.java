@@ -3,8 +3,10 @@ package com.baimao.oj.controller;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.model.dto.questionsubmit.QuestionSubmitAddRequest;
 import com.baimao.oj.model.dto.questionsubmit.QuestionSubmitQueryRequest;
+import com.baimao.oj.model.entity.ContestQuestion;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.vo.QuestionSubmitVO;
+import com.baimao.oj.service.ContestQuestionService;
 import com.baimao.oj.service.QuestionSubmitService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -24,15 +26,18 @@ import com.baimao.oj.service.QuestionService;
 import com.baimao.oj.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 题目接口
-
  */
 @RestController
 @RequestMapping("/question")
@@ -44,6 +49,10 @@ public class QuestionController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    @Lazy
+    private ContestQuestionService contestQuestionService;
 
     // region 增删改查
 
@@ -66,13 +75,13 @@ public class QuestionController {
             question.setTags(JSONUtil.toJsonStr(tags));
         }
         List<JudgeCase> judgeCase = questionAddRequest.getJudgeCase();
-        if(judgeCase != null) {
+        if (judgeCase != null) {
             /** 给每个测试用例的输出加个换行符 */
             judgeCase.stream().forEach(item -> item.setOutput(item.getOutput() + "\n"));
             question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
         }
         JudgeConfig judgeConfig = questionAddRequest.getJudgeConfig();
-        if(judgeConfig != null) {
+        if (judgeConfig != null) {
             question.setJudgeConfig(JSONUtil.toJsonStr(judgeConfig));
         }
         questionService.validQuestion(question, true);
@@ -108,15 +117,12 @@ public class QuestionController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean b = questionService.removeById(id);
-        if(!b) {
+        if (!b) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR);
         }
         LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(QuestionSubmit::getQuestionId, id);
         boolean remove = questionSubmitService.remove(queryWrapper);
-        if(!remove) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR);
-        }
         return ResultUtils.success(remove);
     }
 
@@ -139,14 +145,14 @@ public class QuestionController {
             question.setTags(JSONUtil.toJsonStr(tags));
         }
         List<JudgeCase> judgeCase = questionUpdateRequest.getJudgeCase();
-        if(judgeCase != null) {
+        if (judgeCase != null) {
             /** 给每个测试用例的输出补充换行符 */
 //            judgeCase.stream().forEach(item -> item.setOutput(item.getOutput().replaceAll("\\s+$", "") + "\n"));
             System.out.println(judgeCase);
             question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
         }
         JudgeConfig judgeConfig = questionUpdateRequest.getJudgeConfig();
-        if(judgeConfig != null) {
+        if (judgeConfig != null) {
             question.setJudgeConfig(JSONUtil.toJsonStr(judgeConfig));
         }
         // 参数校验
@@ -176,7 +182,7 @@ public class QuestionController {
         }
         // 只有本人和管理员才能执行操作
         User loginUser = userService.getLoginUser(request);
-        if(!loginUser.getId().equals(question.getUserId()) && !userService.isAdmin(loginUser)) {
+        if (!loginUser.getId().equals(question.getUserId()) && !userService.isAdmin(loginUser)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         return ResultUtils.success(question);
@@ -262,7 +268,6 @@ public class QuestionController {
     }
 
 
-
     /**
      * 编辑（用户），与上面的update差不多
      *
@@ -282,11 +287,11 @@ public class QuestionController {
             question.setTags(JSONUtil.toJsonStr(tags));
         }
         List<JudgeCase> judgeCase = questionEditRequest.getJudgeCase();
-        if(judgeCase != null) {
+        if (judgeCase != null) {
             question.setJudgeCase(JSONUtil.toJsonStr(judgeCase));
         }
         JudgeConfig judgeConfig = questionEditRequest.getJudgeConfig();
-        if(judgeConfig != null) {
+        if (judgeConfig != null) {
             question.setJudgeConfig(JSONUtil.toJsonStr(judgeConfig));
         }
         // 参数校验
@@ -313,13 +318,14 @@ public class QuestionController {
 
     /**
      * 题目提交
+     *
      * @param questionSubmitAddRequest
      * @param request
      * @return 提交记录的 id
      */
     @PostMapping("/question_submit/do_submit")
     public BaseResponse<QuestionSubmit> doQuestionSubmit(@RequestBody QuestionSubmitAddRequest questionSubmitAddRequest,
-                                               HttpServletRequest request) {
+                                                         HttpServletRequest request) {
         if (questionSubmitAddRequest == null || questionSubmitAddRequest.getQuestionId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -331,7 +337,7 @@ public class QuestionController {
 
     @PostMapping("/question_submit/do_submit_vo")
     public BaseResponse<QuestionSubmitVO> doQuestionSubmitVO(@RequestBody QuestionSubmitAddRequest questionSubmitAddRequest,
-                                                         HttpServletRequest request) {
+                                                             HttpServletRequest request) {
         if (questionSubmitAddRequest == null || questionSubmitAddRequest.getQuestionId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -343,6 +349,7 @@ public class QuestionController {
 
     /**
      * 分页获取问题提交列表（除了管理员，只有用户自己能看到详细代码）
+     *
      * @param questionSubmitQueryRequest
      * @return
      */
@@ -355,9 +362,9 @@ public class QuestionController {
 
         Page<QuestionSubmit> questionSubmitPage = questionSubmitService.page(new Page<>(current, size),
                 questionSubmitService.getQueryWrapper(questionSubmitQueryRequest));
-        //2. 将查到的题目提交列表脱敏为VO
-        final User loginUser = userService.getLoginUser(request);
-        Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage, loginUser);
+
+        //将查到的题目提交列表脱敏为VO
+        Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage);
         return ResultUtils.success(questionSubmitVOPage);
     }
 

@@ -39,19 +39,18 @@ public interface QuestionSubmitService extends IService<QuestionSubmit> {
      * 获取题目提交封装
      *
      * @param questionSubmit
-     * @param loginUser
+     * @param submitUser
      * @return
      */
-    QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User loginUser);
+    QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User submitUser);
 
     /**
      * 分页获取题目提交封装
      *
      * @param questionSubmitPage
-     * @param loginUser
      * @return
      */
-    Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage,User loginUser);
+    Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage);
 
     /**
      * 某个比赛下某个用户的提交记录

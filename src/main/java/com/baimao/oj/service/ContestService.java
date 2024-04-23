@@ -39,7 +39,7 @@ public interface ContestService extends IService<Contest> {
      * @param contestQueryRequest
      * @return
      */
-    QueryWrapper<Contest> getQueryWrapper(ContestQueryRequest contestQueryRequest);
+    QueryWrapper<Contest> getQueryWrapper(ContestQueryRequest contestQueryRequest,HttpServletRequest request);
 
     Page<ContestVO> getContestVOPage(Page<Contest> contestPage, HttpServletRequest request);
 
@@ -50,4 +50,13 @@ public interface ContestService extends IService<Contest> {
      * @return
      */
     Boolean editById(Contest contest, List<Long> questionIdList);
+
+    /**
+     * 添加比赛
+     * @param contest
+     * @param questionIdList
+     * @param userId
+     * @return
+     */
+    Long saveContest(Contest contest,List<Long> questionIdList,Long userId);
 }

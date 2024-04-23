@@ -18,4 +18,9 @@ public interface RegistrationsService extends IService<Registrations> {
      * @param add
      */
     void validRegistration(Registrations registration, boolean add);
+
+    /**
+     * 某个比赛报名的人数
+     */
+    Long getRegistrationCountByContestId(Long contestId);
 }

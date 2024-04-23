@@ -1,5 +1,6 @@
 package com.baimao.oj.model.entity;
 
+import com.baimao.oj.model.vo.ContestUserVO;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -9,6 +10,7 @@ import java.util.Date;
 
 import lombok.Builder;
 import lombok.Data;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * 竞赛题目关联表
@@ -17,7 +19,7 @@ import lombok.Data;
 @TableName(value ="contest_question")
 @Data
 @Builder
-public class ContestQuestion implements Serializable {
+public class ContestQuestion implements Serializable,Comparable<ContestQuestion> {
     /**
      * id
      */
@@ -56,4 +58,14 @@ public class ContestQuestion implements Serializable {
 
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
+
+    /**
+     * 按序号升序排序
+     * @param o the object to be compared.
+     * @return
+     */
+    @Override
+    public int compareTo(@NotNull ContestQuestion o) {
+        return this.sequence - o.sequence;
+    }
 }

@@ -1,10 +1,10 @@
 package com.baimao.oj.model.vo;
 
 import cn.hutool.json.JSONUtil;
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baimao.oj.model.dto.question.JudgeConfig;
 import com.baimao.oj.model.entity.Question;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
 
@@ -12,10 +12,10 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * 题目封装类（返回给前端的题目信息）
+ * 比赛的题目封装类（返回给前端的题目信息）
  */
 @Data
-public class QuestionVO {
+public class ContestQuestionVO {
     /**
      * id
      */
@@ -80,6 +80,11 @@ public class QuestionVO {
     //测试用例的数量
     private Integer judgeCaseNumber;
 
+    /**
+     * 是否已提交
+     */
+    private Boolean isSubmit;
+
     private static final long serialVersionUID = 1L;
 
 
@@ -89,7 +94,7 @@ public class QuestionVO {
      * @param questionVO
      * @return
      */
-    public static Question voToObj(QuestionVO questionVO) {
+    public static Question voToObj(ContestQuestionVO questionVO) {
         if (questionVO == null) {
             return null;
         }
@@ -112,11 +117,11 @@ public class QuestionVO {
      * @param question
      * @return
      */
-    public static QuestionVO objToVo(Question question) {
+    public static ContestQuestionVO objToVo(Question question) {
         if (question == null) {
             return null;
         }
-        QuestionVO questionVO = new QuestionVO();
+        ContestQuestionVO questionVO = new ContestQuestionVO();
         BeanUtils.copyProperties(question, questionVO);
         List<String> tagList = JSONUtil.toList(question.getTags(), String.class);
         questionVO.setTags(tagList);
