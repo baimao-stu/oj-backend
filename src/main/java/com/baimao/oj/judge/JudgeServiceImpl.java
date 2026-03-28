@@ -3,6 +3,7 @@ package com.baimao.oj.judge;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.common.ErrorCode;
 import com.baimao.oj.exception.BusinessException;
+import com.baimao.oj.exception.ThrowUtils;
 import com.baimao.oj.judge.codesangbox.CodeSandbox;
 import com.baimao.oj.judge.codesangbox.CodeSandboxFactory;
 import com.baimao.oj.judge.codesangbox.CodeSandboxProxy;
@@ -20,7 +21,7 @@ import com.baimao.oj.service.QuestionSubmitService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.List;
 import java.util.stream.Collectors;
 

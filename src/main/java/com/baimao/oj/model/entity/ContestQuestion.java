@@ -10,7 +10,6 @@ import java.util.Date;
 
 import lombok.Builder;
 import lombok.Data;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * 竞赛题目关联表
@@ -65,7 +64,7 @@ public class ContestQuestion implements Serializable,Comparable<ContestQuestion>
      * @return
      */
     @Override
-    public int compareTo(@NotNull ContestQuestion o) {
+    public int compareTo(ContestQuestion o) {
         return this.sequence - o.sequence;
     }
 }

@@ -11,7 +11,7 @@ WORKDIR /app
 ADD ./oj-backend-0.0.1-SNAPSHOT.jar .
 VOLUME ./.mysql-data:/var/lib/mysql
 
-# 说明会暴露的端口，实际启动还得自己指定
+# 说明会暴露的端口，实际启动还得自己指
 EXPOSE 50000
 
 # RUN mvn package -DskipTests

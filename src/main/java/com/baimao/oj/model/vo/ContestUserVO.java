@@ -3,7 +3,6 @@ package com.baimao.oj.model.vo;
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import lombok.Data;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.Serializable;
 import java.util.Date;
@@ -45,7 +44,7 @@ public class ContestUserVO implements Serializable,Comparable<ContestUserVO> {
      * @return
      */
     @Override
-    public int compareTo(@NotNull ContestUserVO o) {
+    public int compareTo(ContestUserVO o) {
         if(o.acNum.equals(this.acNum)) {
             return (int)(this.allTime - o.allTime);
         }

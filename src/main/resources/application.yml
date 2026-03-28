@@ -1,48 +1,32 @@
-# 公共配置文件
 spring:
   application:
     name: oj-backend
-  # 默认 dev 环境
-  config:
-    activate:
-      on-profile: dev
-  # 支持 swagger3
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
-  # session 配置
   session:
-#    # todo 取消注释开启分布式 session（须先配置 Redis）
-#    store-type: redis
-    # 30 天过期
     timeout: 2592000
-  # 数据库配置
-  # todo 需替换配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/yuoj?characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: root
-    password: root
-  # Redis 配置
-  # todo 需替换配置，然后取消注释
-#  redis:
-#    database: 1
-#    host: localhost
-#    port: 6379
-#    timeout: 5000
-#    password: 123456
-  # 文件上传
+    password: 136828www
+  ai:
+    dashscope:
+      api-key: 89fd0b23909d43809e5ffc3df4ca3445
+      chat:
+        options:
+          model: qwen-max
+          # temperature: 0.2
   servlet:
     multipart:
-      # 大小限制
       max-file-size: 10MB
+
 server:
   address: 0.0.0.0
   port: 50000
   servlet:
-    # 项目的访问前缀
     context-path: /api
-    # cookie 30 天过期
     session:
       cookie:
         max-age: 2592000
@@ -50,56 +34,39 @@ server:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
-    # mybatis plus日志，输出到控制台
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
-      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
-      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
-# 接口文档配置
+      logic-delete-field: isDelete
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
 knife4j:
   enable: true
   openapi:
-    title: "接口文档"
+    title: "API Docs"
     version: 1.0
     group:
       default:
         api-rule: package
         api-rule-resources:
           - com.baimao.oj.controller
+          - com.baimao.oj.ai.controller
 
 codesandbox:
   type: remote
   url: http://localhost:8888/executeCode
 
+ai:
+  enabled: true
+  retention-days: 30
+  request-timeout-ms: 30000
+  max-history-messages: 20
+  default-provider: dashscope
+  default-model-name: ${DASHSCOPE_MODEL:qwen-max}
+  default-base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
+  default-api-key: ${DASHSCOPE_API_KEY:}
+  refuse-message: Sorry, I cannot directly provide full AC-ready solution code. I can help with ideas, debugging, and optimization.
+  security-secret-key: oj-ai-secret-key
+  archive-cron: "0 0/30 * * * ?"
 
-# 微信相关
-wx:
-  # 微信公众平台
-  # todo 需替换配置
-  mp:
-    token: xxx
-    aesKey: xxx
-    appId: xxx
-    secret: xxx
-    config-storage:
-      http-client-type: HttpClient
-      key-prefix: wx
-      redis:
-        host: 127.0.0.1
-        port: 6379
-      type: Memory
-  # 微信开放平台
-  # todo 需替换配置
-  open:
-    appId: xxx
-    appSecret: xxx
-# 对象存储
-# todo 需替换配置
-cos:
-  client:
-    accessKey: xxx
-    secretKey: xxx
-    region: xxx
-    bucket: xxx

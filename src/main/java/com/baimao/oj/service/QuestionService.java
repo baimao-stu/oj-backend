@@ -7,7 +7,7 @@ import com.baimao.oj.model.entity.Question;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.baimao.oj.model.vo.QuestionVO;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  *

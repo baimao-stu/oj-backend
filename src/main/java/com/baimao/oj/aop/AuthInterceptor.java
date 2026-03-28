@@ -7,8 +7,8 @@ import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.model.entity.User;
 import com.baimao.oj.model.enums.UserRoleEnum;
 import com.baimao.oj.service.UserService;
-import javax.annotation.Resource;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

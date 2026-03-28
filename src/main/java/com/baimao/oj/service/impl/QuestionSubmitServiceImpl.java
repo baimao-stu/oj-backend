@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.baimao.oj.judge.JudgeService;
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.dto.question.JudgeCase;
+import com.baimao.oj.model.enums.JudgeInfoMessageEnum;
 import com.baimao.oj.model.vo.QuestionVO;
 import com.baimao.oj.model.vo.UserVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -32,8 +33,10 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.beans.Transient;
 import java.util.Date;
 import java.util.List;
@@ -67,7 +70,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * @return
      */
     @Override
-    @Transient
+    @Transactional  //有外部调用，需要事务
     public QuestionSubmit doQuestionSubmit(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
         //1. 校验编程语言是否合理
         String language = questionSubmitAddRequest.getLanguage();
@@ -115,7 +118,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         String judgeInfoStr = questionSubmitResponse.getJudgeInfo();
         JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
         question.setSubNum(question.getSubNum() + 1);
-        if("Accepted".equals(judgeInfo.getMessage())) {
+        if(JudgeInfoMessageEnum.ACCEPTED.getText().equals(judgeInfo.getMessage())) {
             question.setAcceptedNum(question.getAcceptedNum() + 1);
         }
         boolean update = questionService.updateById(question);
@@ -128,7 +131,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
 
 
     @Override
-    @Transient
+    @Transactional  //有外部调用，需要事务
     public QuestionSubmitVO doQuestionSubmitVO(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
         QuestionSubmit questionSubmit = doQuestionSubmit(questionSubmitAddRequest, loginUser);
         QuestionSubmitVO questionSubmitVO = getQuestionSubmitVO(questionSubmit, loginUser);

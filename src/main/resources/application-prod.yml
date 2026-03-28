@@ -1,48 +1,35 @@
-# 公共配置文件
 spring:
   application:
     name: oj-backend
-  # 默认 prod 环境
   config:
     activate:
       on-profile: prod
-  # 支持 swagger3
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
-  # session 配置
   session:
-    #    # todo 取消注释开启分布式 session（须先配置 Redis）
-    #    store-type: redis
-    # 30 天过期
     timeout: 2592000
-  # 数据库配置
-  # todo 需替换配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://120.76.250.225:3306/yuoj?characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: baimao
     password: sztu@2078
-  # Redis 配置
-  # todo 需替换配置，然后取消注释
-#  redis:
-#    database: 1
-#    host: localhost
-#    port: 6379
-#    timeout: 5000
-  #    password: 123456
-  # 文件上传
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
+      chat:
+        options:
+          model: ${DASHSCOPE_MODEL:qwen-plus}
+          temperature: 0.2
   servlet:
     multipart:
-      # 大小限制
       max-file-size: 10MB
+
 server:
   address: 0.0.0.0
   port: 50000
   servlet:
-    # 项目的访问前缀
     context-path: /api
-    # cookie 30 天过期
     session:
       cookie:
         max-age: 2592000
@@ -50,25 +37,38 @@ server:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
-    # 线上日志关了
-    log-impl: ''
+    log-impl: ""
   global-config:
     db-config:
-      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
-      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
-      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
-# 接口文档配置
+      logic-delete-field: isDelete
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
 knife4j:
   enable: true
   openapi:
-    title: "接口文档"
+    title: "API Docs"
     version: 1.0
     group:
       default:
         api-rule: package
         api-rule-resources:
           - com.baimao.oj.controller
+          - com.baimao.oj.ai.controller
 
 codesandbox:
   type: remote
   url: http://120.76.250.225:50001/executeCode
+
+ai:
+  enabled: true
+  retention-days: 30
+  request-timeout-ms: 30000
+  max-history-messages: 20
+  default-provider: dashscope
+  default-model-name: ${DASHSCOPE_MODEL:qwen-plus}
+  default-base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
+  default-api-key: ${DASHSCOPE_API_KEY:}
+  refuse-message: Sorry, I cannot directly provide full AC-ready solution code. I can help with ideas, debugging, and optimization.
+  security-secret-key: oj-ai-secret-key
+  archive-cron: "0 0/30 * * * ?"

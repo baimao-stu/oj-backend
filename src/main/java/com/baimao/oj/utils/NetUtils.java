@@ -1,7 +1,7 @@
 package com.baimao.oj.utils;
 
 import java.net.InetAddress;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 网络工具类

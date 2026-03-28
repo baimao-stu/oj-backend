@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
  * 分页插件
  */
 @Configuration
-@MapperScan("com.baimao.oj.mapper")
+@MapperScan({"com.baimao.oj.mapper", "com.baimao.oj.ai.mapper"})
 public class MyBatisPlusConfig {
 
     /**

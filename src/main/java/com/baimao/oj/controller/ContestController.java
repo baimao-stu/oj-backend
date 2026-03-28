@@ -18,10 +18,6 @@ import com.baimao.oj.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import io.swagger.annotations.Api;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.Info;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Description;
@@ -29,8 +25,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import javax.annotation.Resource;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -342,7 +338,6 @@ public class ContestController {
      * @return
      */
     @PostMapping("/get/registrationByContestId")
-    @ApiOperation("用户是否报名某个比赛")
     public BaseResponse<Registrations> getRegistrationByContestId(Long contestId, HttpServletRequest request) {
         if (contestId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -506,7 +501,6 @@ public class ContestController {
      * @return
      */
     @GetMapping("/get/count/registration")
-    @ApiOperation("获取某个比赛的报名人数")
     public BaseResponse<Long> getRegistrationCount(Long contestId, HttpServletRequest request) {
         long count = registrationsService.getRegistrationCountByContestId(contestId);
         return ResultUtils.success(count);
@@ -519,7 +513,6 @@ public class ContestController {
      * @return
      */
     @GetMapping("/get/count/question")
-    @ApiOperation("获取某个比赛的题目数量")
     public BaseResponse<Long> getQuestionCount(Long contestId, HttpServletRequest request) {
         if (contestId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
