@@ -1,6 +1,6 @@
 package com.baimao.oj.ai.mapper;
 
-import com.baimao.oj.ai.entity.AiChatSession;
+import com.baimao.oj.ai.model.entity.AiChatSession;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**

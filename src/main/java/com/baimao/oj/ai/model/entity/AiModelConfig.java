@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for compliance violation audit logs.
+ * Entity for model provider configuration and routing priority.
  */
 @Data
-@TableName("ai_violation_log")
-public class AiViolationLog implements Serializable {
+@TableName("ai_model_config")
+public class AiModelConfig implements Serializable {
 
     /**
      * Primary key.
@@ -24,29 +24,39 @@ public class AiViolationLog implements Serializable {
     private Long id;
 
     /**
-     * OJ user id.
+     * Provider name, e.g. dashscope.
      */
-    private Long userId;
+    private String provider;
 
     /**
-     * Session id reference.
+     * Model name.
      */
-    private Long sessionId;
+    private String modelName;
 
     /**
-     * Message id reference.
+     * Provider base URL.
      */
-    private Long messageId;
+    private String baseUrl;
 
     /**
-     * Violation rule type identifier.
+     * Encrypted API key.
      */
-    private String ruleType;
+    private String apiKey;
 
     /**
-     * Truncated violating content for audit.
+     * Lower value means higher priority.
      */
-    private String contentSnippet;
+    private Integer priority;
+
+    /**
+     * Enabled flag.
+     */
+    private Integer enabled;
+
+    /**
+     * Default model flag.
+     */
+    private Integer isDefault;
 
     /**
      * Record creation time.

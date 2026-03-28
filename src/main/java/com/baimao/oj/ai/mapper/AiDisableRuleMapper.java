@@ -1,6 +1,6 @@
 package com.baimao.oj.ai.mapper;
 
-import com.baimao.oj.ai.entity.AiDisableRule;
+import com.baimao.oj.ai.model.entity.AiDisableRule;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**

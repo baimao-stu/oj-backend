@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.enums;
+package com.baimao.oj.ai.model.enums;
 
 import org.apache.commons.lang3.StringUtils;
 

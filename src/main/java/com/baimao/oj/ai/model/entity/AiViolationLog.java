@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for sensitive words used by moderation filters.
+ * Entity for compliance violation audit logs.
  */
 @Data
-@TableName("ai_sensitive_word")
-public class AiSensitiveWord implements Serializable {
+@TableName("ai_violation_log")
+public class AiViolationLog implements Serializable {
 
     /**
      * Primary key.
@@ -24,14 +24,29 @@ public class AiSensitiveWord implements Serializable {
     private Long id;
 
     /**
-     * Sensitive keyword.
+     * OJ user id.
      */
-    private String word;
+    private Long userId;
 
     /**
-     * Enabled flag.
+     * Session id reference.
      */
-    private Integer enabled;
+    private Long sessionId;
+
+    /**
+     * Message id reference.
+     */
+    private Long messageId;
+
+    /**
+     * Violation rule type identifier.
+     */
+    private String ruleType;
+
+    /**
+     * Truncated violating content for audit.
+     */
+    private String contentSnippet;
 
     /**
      * Record creation time.

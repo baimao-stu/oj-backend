@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for per-tool enablement and rate limiting config.
+ * Entity for AI chat session lifecycle records.
  */
 @Data
-@TableName("ai_tool_config")
-public class AiToolConfig implements Serializable {
+@TableName("ai_chat_session")
+public class AiChatSession implements Serializable {
 
     /**
      * Primary key.
@@ -24,19 +24,44 @@ public class AiToolConfig implements Serializable {
     private Long id;
 
     /**
-     * Tool unique name.
+     * OJ user id.
      */
-    private String toolName;
+    private Long userId;
 
     /**
-     * Enabled flag.
+     * OJ question id.
      */
-    private Integer enabled;
+    private Long questionId;
 
     /**
-     * Daily call limit per user.
+     * Contest id; 0 means non-contest context.
      */
-    private Integer dailyLimit;
+    private Long contestId;
+
+    /**
+     * Session mode: normal / agent.
+     */
+    private String mode;
+
+    /**
+     * Session status defined by {@code AiSessionStatusEnum}.
+     */
+    private Integer status;
+
+    /**
+     * Reason when session is disabled by policy.
+     */
+    private String disableReason;
+
+    /**
+     * Last message timestamp.
+     */
+    private Date lastMessageTime;
+
+    /**
+     * Session expiration timestamp.
+     */
+    private Date expireTime;
 
     /**
      * Record creation time.

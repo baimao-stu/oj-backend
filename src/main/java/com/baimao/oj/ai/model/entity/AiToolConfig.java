@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for prompt templates and version control.
+ * Entity for per-tool enablement and rate limiting config.
  */
 @Data
-@TableName("ai_prompt_config")
-public class AiPromptConfig implements Serializable {
+@TableName("ai_tool_config")
+public class AiToolConfig implements Serializable {
 
     /**
      * Primary key.
@@ -24,19 +24,9 @@ public class AiPromptConfig implements Serializable {
     private Long id;
 
     /**
-     * Prompt scene, e.g. normal/agent.
+     * Tool unique name.
      */
-    private String scene;
-
-    /**
-     * Prompt version number.
-     */
-    private Integer versionNo;
-
-    /**
-     * Prompt template content.
-     */
-    private String promptContent;
+    private String toolName;
 
     /**
      * Enabled flag.
@@ -44,9 +34,9 @@ public class AiPromptConfig implements Serializable {
     private Integer enabled;
 
     /**
-     * Active version flag.
+     * Daily call limit per user.
      */
-    private Integer isActive;
+    private Integer dailyLimit;
 
     /**
      * Record creation time.

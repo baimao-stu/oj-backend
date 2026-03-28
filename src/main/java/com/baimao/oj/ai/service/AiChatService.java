@@ -1,9 +1,9 @@
 package com.baimao.oj.ai.service;
 
-import com.baimao.oj.ai.dto.AiChatSendRequest;
-import com.baimao.oj.ai.dto.AiChatSessionRequest;
-import com.baimao.oj.ai.model.AiChatMessageVO;
-import com.baimao.oj.ai.model.AiChatSessionVO;
+import com.baimao.oj.ai.model.dto.AiChatSendRequest;
+import com.baimao.oj.ai.model.dto.AiChatSessionRequest;
+import com.baimao.oj.ai.model.vo.AiChatMessageVO;
+import com.baimao.oj.ai.model.vo.AiChatSessionVO;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.servlet.http.HttpServletRequest;

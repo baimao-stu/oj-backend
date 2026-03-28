@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;

@@ -38,7 +38,6 @@ public class AiProperties {
      */
     private String defaultProvider = "dashscope";
     private String defaultModelName = "qwen-plus";
-    private String defaultBaseUrl = "https://dashscope.aliyuncs.com";
     private String defaultApiKey = "";
 
     /**

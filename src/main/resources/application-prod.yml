@@ -16,10 +16,10 @@ spring:
     password: sztu@2078
   ai:
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}
+      api-key: ${DASHSCOPE_API_KEY:89fd0b23909d43809e5ffc3df4ca3445}
       chat:
         options:
-          model: ${DASHSCOPE_MODEL:qwen-plus}
+          model: ${DASHSCOPE_MODEL:qwen-max}
           temperature: 0.2
   servlet:
     multipart:
@@ -59,16 +59,3 @@ knife4j:
 codesandbox:
   type: remote
   url: http://120.76.250.225:50001/executeCode
-
-ai:
-  enabled: true
-  retention-days: 30
-  request-timeout-ms: 30000
-  max-history-messages: 20
-  default-provider: dashscope
-  default-model-name: ${DASHSCOPE_MODEL:qwen-plus}
-  default-base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
-  default-api-key: ${DASHSCOPE_API_KEY:}
-  refuse-message: Sorry, I cannot directly provide full AC-ready solution code. I can help with ideas, debugging, and optimization.
-  security-secret-key: oj-ai-secret-key
-  archive-cron: "0 0/30 * * * ?"

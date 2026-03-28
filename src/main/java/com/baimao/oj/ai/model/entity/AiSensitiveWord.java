@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for AI chat session lifecycle records.
+ * Entity for sensitive words used by moderation filters.
  */
 @Data
-@TableName("ai_chat_session")
-public class AiChatSession implements Serializable {
+@TableName("ai_sensitive_word")
+public class AiSensitiveWord implements Serializable {
 
     /**
      * Primary key.
@@ -24,44 +24,14 @@ public class AiChatSession implements Serializable {
     private Long id;
 
     /**
-     * OJ user id.
+     * Sensitive keyword.
      */
-    private Long userId;
+    private String word;
 
     /**
-     * OJ question id.
+     * Enabled flag.
      */
-    private Long questionId;
-
-    /**
-     * Contest id; 0 means non-contest context.
-     */
-    private Long contestId;
-
-    /**
-     * Session mode: normal / agent.
-     */
-    private String mode;
-
-    /**
-     * Session status defined by {@code AiSessionStatusEnum}.
-     */
-    private Integer status;
-
-    /**
-     * Reason when session is disabled by policy.
-     */
-    private String disableReason;
-
-    /**
-     * Last message timestamp.
-     */
-    private Date lastMessageTime;
-
-    /**
-     * Session expiration timestamp.
-     */
-    private Date expireTime;
+    private Integer enabled;
 
     /**
      * Record creation time.

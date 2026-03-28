@@ -58,15 +58,24 @@ codesandbox:
   url: http://localhost:8888/executeCode
 
 ai:
+  # 1. 是否启用 AI 功能：true=开启，false=关闭
   enabled: true
+  # 2. AI 对话记录保留天数：30 天后自动清理历史对话
   retention-days: 30
+  # 3. 调用 AI 接口的超时时间：30000 毫秒 = 30 秒
   request-timeout-ms: 30000
+  # 4. 最大保留历史消息数：每次对话只带最近 20 条上下文给 AI
   max-history-messages: 20
+  # 5. 默认使用的 AI 服务商：dashscope = 阿里云通义千问
   default-provider: dashscope
+  # 6. 默认使用的 AI 模型名称
   default-model-name: ${DASHSCOPE_MODEL:qwen-max}
-  default-base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com}
-  default-api-key: ${DASHSCOPE_API_KEY:}
+  # 8. AI 服务商的 API Key（鉴权用）
+  default-api-key: 89fd0b23909d43809e5ffc3df4ca3445
+  # 9. 拒绝回答的固定话术
   refuse-message: Sorry, I cannot directly provide full AC-ready solution code. I can help with ideas, debugging, and optimization.
+  # 10. 接口安全密钥（项目内部鉴权用）
   security-secret-key: oj-ai-secret-key
+  # 11. 定时任务表达式：每 30 分钟执行一次
   archive-cron: "0 0/30 * * * ?"
 

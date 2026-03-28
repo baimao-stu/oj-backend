@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.entity;
+package com.baimao.oj.ai.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -11,11 +11,11 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for model provider configuration and routing priority.
+ * Entity for prompt templates and version control.
  */
 @Data
-@TableName("ai_model_config")
-public class AiModelConfig implements Serializable {
+@TableName("ai_prompt_config")
+public class AiPromptConfig implements Serializable {
 
     /**
      * Primary key.
@@ -24,29 +24,19 @@ public class AiModelConfig implements Serializable {
     private Long id;
 
     /**
-     * Provider name, e.g. dashscope.
+     * Prompt scene, e.g. normal/agent.
      */
-    private String provider;
+    private String scene;
 
     /**
-     * Model name.
+     * Prompt version number.
      */
-    private String modelName;
+    private Integer versionNo;
 
     /**
-     * Provider base URL.
+     * Prompt template content.
      */
-    private String baseUrl;
-
-    /**
-     * Encrypted API key.
-     */
-    private String apiKey;
-
-    /**
-     * Lower value means higher priority.
-     */
-    private Integer priority;
+    private String promptContent;
 
     /**
      * Enabled flag.
@@ -54,9 +44,9 @@ public class AiModelConfig implements Serializable {
     private Integer enabled;
 
     /**
-     * Default model flag.
+     * Active version flag.
      */
-    private Integer isDefault;
+    private Integer isActive;
 
     /**
      * Record creation time.

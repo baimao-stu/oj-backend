@@ -1,6 +1,6 @@
 package com.baimao.oj.ai.mapper;
 
-import com.baimao.oj.ai.entity.AiViolationLog;
+import com.baimao.oj.ai.model.entity.AiViolationLog;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**

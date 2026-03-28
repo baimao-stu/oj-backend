@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.model;
+package com.baimao.oj.ai.model.vo;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.dto;
+package com.baimao.oj.ai.model.dto;
 
 import lombok.Data;
 

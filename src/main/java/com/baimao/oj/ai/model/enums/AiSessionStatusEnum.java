@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.enums;
+package com.baimao.oj.ai.model.enums;
 
 /**
  * Status of AI chat session lifecycle.
