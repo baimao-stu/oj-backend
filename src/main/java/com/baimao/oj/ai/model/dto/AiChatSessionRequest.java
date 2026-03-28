@@ -5,16 +5,17 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * Request used to locate a unique AI chat session for a user on a question.
+ * 用于定位用户在题目维度唯一会话的请求对象。
  */
 @Data
 public class AiChatSessionRequest implements Serializable {
     /**
-     * Question id in OJ.
+     * OJ 题目编号。
      */
     private Long questionId;
     /**
-     * Contest id; 0 or null means non-contest scenario.
+     * 比赛编号；0 或空值表示非比赛场景。
      */
     private Long contestId;
 }
+

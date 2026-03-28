@@ -11,60 +11,60 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for one chat message in a session.
+ * 会话内单条聊天消息实体。
  */
 @Data
 @TableName("ai_chat_message")
 public class AiChatMessage implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * Session id reference.
+     * 会话编号引用。
      */
     private Long sessionId;
 
     /**
-     * Message role: user / assistant.
+     * 消息角色：用户 / 助手。
      */
     private String role;
 
     /**
-     * Message mode: normal / agent.
+     * 消息模式：普通 / 智能体。
      */
     private String mode;
 
     /**
-     * Message text content.
+     * 消息文本内容。
      */
     private String content;
 
     /**
-     * Tool call trace JSON string.
+     * 工具调用轨迹 JSON 字符串。
      */
     private String toolCalls;
 
     /**
-     * Violation flag, 0 for normal.
+     * 违规标记，0 表示正常。
      */
     private Integer violation;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -72,3 +72,4 @@ public class AiChatMessage implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

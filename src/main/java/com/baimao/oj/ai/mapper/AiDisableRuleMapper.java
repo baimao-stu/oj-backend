@@ -4,7 +4,8 @@ import com.baimao.oj.ai.model.entity.AiDisableRule;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
- * Mapper for AI disable rules at global/contest/question/user scopes.
+ * AI 禁用规则映射接口（全局/比赛/题目/用户维度）。
  */
 public interface AiDisableRuleMapper extends BaseMapper<AiDisableRule> {
 }
+

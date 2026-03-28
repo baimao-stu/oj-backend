@@ -7,22 +7,23 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
 /**
- * Tool event payload streamed to frontend in agent mode.
+ * 智能体模式下推送到前端的工具事件载荷。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class AiToolEventVO implements Serializable {
     /**
-     * Tool unique name.
+     * 工具唯一名称。
      */
     private String toolName;
     /**
-     * Execution status: done/skipped/error.
+     * 执行状态：完成/跳过/错误。
      */
     private String status;
     /**
-     * Human-readable summary.
+     * 可读摘要信息。
      */
     private String summary;
 }
+

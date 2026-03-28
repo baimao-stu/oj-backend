@@ -11,45 +11,45 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for per-tool enablement and rate limiting config.
+ * 按工具维度的启用与限流配置实体。
  */
 @Data
 @TableName("ai_tool_config")
 public class AiToolConfig implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * Tool unique name.
+     * 工具唯一名称。
      */
     private String toolName;
 
     /**
-     * Enabled flag.
+     * 启用标记。
      */
     private Integer enabled;
 
     /**
-     * Daily call limit per user.
+     * 每用户每日调用上限。
      */
     private Integer dailyLimit;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -57,3 +57,4 @@ public class AiToolConfig implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

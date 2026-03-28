@@ -6,32 +6,33 @@ import java.io.Serializable;
 import java.util.List;
 
 /**
- * View object returned to frontend for chat session bootstrap.
+ * 前端初始化会话使用的返回视图对象。
  */
 @Data
 public class AiChatSessionVO implements Serializable {
     /**
-     * Session id.
+     * 会话编号。
      */
     private Long sessionId;
     /**
-     * Session status enum value.
+     * 会话状态枚举值。
      */
     private Integer status;
     /**
-     * Current session mode.
+     * 当前会话模式。
      */
     private String mode;
     /**
-     * Whether AI is currently enabled for this scope.
+     * 当前作用域下 AI 是否可用。
      */
     private Boolean enabled;
     /**
-     * Disable reason if disabled.
+     * 禁用时的原因说明。
      */
     private String disableReason;
     /**
-     * Ordered message history.
+     * 有序历史消息列表。
      */
     private List<AiChatMessageVO> messageList;
 }
+

@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.Base64;
 
 /**
- * Utility used to encrypt/decrypt model API keys before persistence.
+ * 用于模型接口密钥入库前加解密的工具类。
  */
 @Component
 public class AiKeyCryptoUtil {
@@ -23,7 +23,7 @@ public class AiKeyCryptoUtil {
     private AiProperties aiProperties;
 
     /**
-     * Encrypt plain text with a local symmetric key.
+     * 使用本地对称密钥加密明文。
      */
     public String encrypt(String plainText) {
         if (StringUtils.isBlank(plainText)) {
@@ -40,7 +40,7 @@ public class AiKeyCryptoUtil {
     }
 
     /**
-     * Decrypt cipher text produced by {@link #encrypt(String)}.
+     * 解密由 {@link #encrypt(String)} 生成的密文。
      */
     public String decrypt(String encryptedText) {
         if (StringUtils.isBlank(encryptedText)) {
@@ -57,7 +57,7 @@ public class AiKeyCryptoUtil {
     }
 
     /**
-     * Build a 16-byte AES key from configured secret.
+     * 根据配置密钥构建 16 字节 AES 密钥。
      */
     private SecretKeySpec buildSecretKey() {
         byte[] keyBytes = aiProperties.getSecuritySecretKey().getBytes(StandardCharsets.UTF_8);
@@ -65,3 +65,4 @@ public class AiKeyCryptoUtil {
         return new SecretKeySpec(finalKey, "AES");
     }
 }
+

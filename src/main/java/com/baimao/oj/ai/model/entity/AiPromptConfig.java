@@ -11,55 +11,55 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for prompt templates and version control.
+ * 提示词模板与版本管理实体。
  */
 @Data
 @TableName("ai_prompt_config")
 public class AiPromptConfig implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * Prompt scene, e.g. normal/agent.
+     * 提示词场景，例如 普通/智能体。
      */
     private String scene;
 
     /**
-     * Prompt version number.
+     * 提示词版本号。
      */
     private Integer versionNo;
 
     /**
-     * Prompt template content.
+     * 提示词模板内容。
      */
     private String promptContent;
 
     /**
-     * Enabled flag.
+     * 启用标记。
      */
     private Integer enabled;
 
     /**
-     * Active version flag.
+     * 生效版本标记。
      */
     private Integer isActive;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -67,3 +67,4 @@ public class AiPromptConfig implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

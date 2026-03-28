@@ -3,23 +3,23 @@ package com.baimao.oj.ai.model.enums;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * Scope dimension for AI disable rules.
+ * AI 禁用规则的作用域维度。
  */
 public enum AiRuleScopeEnum {
     /**
-     * Global scope.
+     * 全局作用域。
      */
     GLOBAL("GLOBAL"),
     /**
-     * Contest scope.
+     * 比赛作用域。
      */
     CONTEST("CONTEST"),
     /**
-     * Question scope.
+     * 题目作用域。
      */
     QUESTION("QUESTION"),
     /**
-     * User scope.
+     * 用户作用域。
      */
     USER("USER");
 
@@ -45,3 +45,4 @@ public enum AiRuleScopeEnum {
         return GLOBAL;
     }
 }
+

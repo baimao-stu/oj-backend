@@ -73,8 +73,8 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 /**
- * Core AI chat implementation:
- * session lifecycle, compliance checks, tool orchestration, and SSE streaming.
+ * AI 聊天核心实现：
+ * 负责会话生命周期、合规校验、工具编排与 SSE 流式输出。
  */
 public class AiChatServiceImpl implements AiChatService {
 
@@ -128,7 +128,7 @@ public class AiChatServiceImpl implements AiChatService {
     private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
 
     /**
-     * Load or create a scoped session and return ordered message history.
+     * 加载或创建作用域会话，并返回按时间排序的历史消息。
      */
     @Override
     public AiChatSessionVO getSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request) {
@@ -158,7 +158,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * Clear messages in current scoped session and reset status/mode.
+     * 清空当前作用域会话消息，并重置状态与模式。
      */
     @Override
     public Boolean clearSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request) {
@@ -184,7 +184,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * Non-streaming chat entry.
+     * 非流式聊天入口。
      */
     @Override
     public AiChatMessageVO chat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
@@ -192,7 +192,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * Streaming chat entry based on SSE.
+     * 基于 SSE 的流式聊天入口。
      */
     @Override
     public SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
@@ -215,7 +215,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * Archive sessions that are still active but already expired.
+     * 归档仍为激活状态但已过期的会话。
      */
     @Override
     public void archiveExpiredSessions() {
@@ -306,16 +306,16 @@ public class AiChatServiceImpl implements AiChatService {
 
     private void validateSessionRequest(AiChatSessionRequest request) {
         if (request == null || request.getQuestionId() == null || request.getQuestionId() <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "题目参数错误");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "棰樼洰鍙傛暟閿欒");
         }
     }
 
     private void validateSendRequest(AiChatSendRequest request) {
         if (request == null || request.getQuestionId() == null || request.getQuestionId() <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "题目参数错误");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "棰樼洰鍙傛暟閿欒");
         }
         if (StringUtils.isBlank(request.getMessage())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "消息不能为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "娑堟伅涓嶈兘涓虹┖");
         }
     }
 
@@ -410,7 +410,7 @@ public class AiChatServiceImpl implements AiChatService {
         if (contestId != null && contestId > 0) {
             Contest contest = contestService.getById(contestId);
             if (contest != null && contest.getEndTime() != null && contest.getEndTime().before(new Date())) {
-                return "比赛已结束，会话已自动禁用";
+                return "比赛已结束，无法继续提问";
             }
         }
         List<AiDisableRule> activeRules = listActiveDisableRules();
@@ -462,7 +462,7 @@ public class AiChatServiceImpl implements AiChatService {
         for (String sensitiveWord : sensitiveWords) {
             if (text.contains(sensitiveWord)) {
                 saveViolation(userId, sessionId, null, "input_sensitive", text);
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "输入内容触发敏感词拦截");
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "输入内容包含敏感词");
             }
         }
     }
@@ -475,7 +475,7 @@ public class AiChatServiceImpl implements AiChatService {
         for (String sensitiveWord : sensitiveWords) {
             if (text.contains(sensitiveWord)) {
                 saveViolation(userId, sessionId, null, "output_sensitive", text);
-                return "输出内容触发安全策略，已自动拦截。你可以换一种问法继续。";
+                return "输出内容包含敏感词，已被过滤";
             }
         }
         return text;
@@ -493,11 +493,11 @@ public class AiChatServiceImpl implements AiChatService {
             return false;
         }
         String lowerCase = text.toLowerCase();
-        return lowerCase.contains("忽略之前")
+        return lowerCase.contains("蹇界暐涔嬪墠")
                 || lowerCase.contains("ignore previous")
-                || lowerCase.contains("系统提示")
+                || lowerCase.contains("绯荤粺鎻愮ず")
                 || lowerCase.contains("developer message")
-                || lowerCase.contains("越狱");
+                || lowerCase.contains("瓒婄嫳");
     }
 
     private String getSystemPrompt(AiChatModeEnum modeEnum) {
@@ -512,9 +512,9 @@ public class AiChatServiceImpl implements AiChatService {
             return promptConfig.getPromptContent();
         }
         if (AiChatModeEnum.AGENT == modeEnum) {
-            return "你是 OJ 学习助手（Agent 模式）。你可以基于工具结果给出分析，但绝不能输出可直接通过判题的完整代码。";
+            return "请根据 OJ 题目描述、输入输出示例，给出解题思路和代码实现。";
         }
-        return "你是 OJ 学习助手（普通模式）。你只能提供题意理解、思路提示、错误定位、复杂度分析与优化建议。";
+        return "请根据 OJ 题目描述、输入输出示例，给出解题思路。";
     }
 
     private List<AiToolEventVO> runAgentTools(User user, Question question, Long contestId,
@@ -531,7 +531,7 @@ public class AiChatServiceImpl implements AiChatService {
             }
             Integer dailyLimit = toolConfig.getDailyLimit() == null ? 30 : toolConfig.getDailyLimit();
             if (!checkAndRecordToolCall(user.getId(), toolName, dailyLimit)) {
-                AiToolEventVO eventVO = new AiToolEventVO(toolName, "skipped", "调用次数已达上限");
+                AiToolEventVO eventVO = new AiToolEventVO(toolName, "skipped", "调用次数超限");
                 result.add(eventVO);
                 if (emitter != null) {
                     sendEvent(emitter, EVENT_TOOL, eventVO);
@@ -547,7 +547,7 @@ public class AiChatServiceImpl implements AiChatService {
                 }
             } catch (Exception e) {
                 log.error("tool {} execute error", toolName, e);
-                AiToolEventVO eventVO = new AiToolEventVO(toolName, "error", "工具执行失败：" + e.getMessage());
+                AiToolEventVO eventVO = new AiToolEventVO(toolName, "error", "工具执行失败: " + e.getMessage());
                 result.add(eventVO);
                 if (emitter != null) {
                     sendEvent(emitter, EVENT_TOOL, eventVO);
@@ -584,11 +584,11 @@ public class AiChatServiceImpl implements AiChatService {
             return true;
         }
         if ("testcase_generator".equals(toolName)) {
-            return message.contains("测试") || message.contains("边界") || message.contains("用例");
+            return message.contains("娴嬭瘯") || message.contains("杈圭晫") || message.contains("鐢ㄤ緥");
         }
         if ("sandbox_execute".equals(toolName)) {
             return StringUtils.isNotBlank(requestBody.getUserCode())
-                    && (message.contains("运行") || message.contains("输出") || message.contains("run"));
+                    && (message.contains("杩愯") || message.contains("杈撳嚭") || message.contains("run"));
         }
         return false;
     }
@@ -645,7 +645,7 @@ public class AiChatServiceImpl implements AiChatService {
         queryWrapper.last("limit 5");
         List<QuestionSubmit> submits = questionSubmitService.list(queryWrapper);
         if (CollUtil.isEmpty(submits)) {
-            return "暂无提交记录，建议先用样例验证基础逻辑。";
+            return "没有找到相关提交记录";
         }
         long acceptedCount = 0;
         String latestJudgeMsg = "N/A";
@@ -663,8 +663,7 @@ public class AiChatServiceImpl implements AiChatService {
                 latestTime = judgeInfo.getTime();
             }
         }
-        return String.format("最近%d次提交中 AC=%d，最近一次结果=%s，耗时=%s。",
-                submits.size(), acceptedCount, latestJudgeMsg, latestTime == null ? "N/A" : latestTime + "ms");
+        return String.format("最近%d次提交中 AC=%d，最近一次结果=%s，耗时=%s。", submits.size(), acceptedCount, latestJudgeMsg, latestTime == null ? "N/A" : latestTime + "ms");
     }
 
     private String toolKnowledgeRetrieval(Question question) {
@@ -676,7 +675,7 @@ public class AiChatServiceImpl implements AiChatService {
             }
         }
         if (CollUtil.isEmpty(tags)) {
-            return "未命中标签，建议优先抽象状态定义、边界条件和复杂度目标。";
+            return "题目标签缺失，建议先明确状态定义、边界条件和复杂度目标。";
         }
         List<String> tips = new ArrayList<>();
         for (String tag : tags) {
@@ -685,27 +684,27 @@ public class AiChatServiceImpl implements AiChatService {
             }
             String lower = tag.toLowerCase();
             if (lower.contains("dp")) {
-                tips.add("动态规划：先定义状态含义，再写状态转移并处理初始化。");
+                tips.add("动态规划：建议画出状态转移图，理清状态定义和转移方程。");
             } else if (lower.contains("greedy") || lower.contains("贪心")) {
-                tips.add("贪心：先证明局部最优可导向全局最优，再考虑反例验证。");
+                tips.add("贪心算法：建议先考虑局部最优选择，证明其能推出全局最优。");
             } else if (lower.contains("graph") || lower.contains("图")) {
-                tips.add("图论：先明确有向/无向、权重特性，再选 BFS/DFS/最短路。");
+                tips.add("图算法：建议考虑图的遍历顺序，标记访问状态，避免重复计算。");
             } else if (lower.contains("string") || lower.contains("字符串")) {
-                tips.add("字符串：关注双指针、哈希计数、前缀函数等技巧。");
+                tips.add("字符串处理：建议注意边界条件，使用双指针或滑动窗口技巧。");
             } else {
-                tips.add(tag + "：先从朴素解出发，再做复杂度优化。");
+                tips.add(tag + "：建议查阅相关算法或数据结构，理解其基本原理和应用场景。");
             }
         }
-        return "知识点检索建议：" + String.join(" ", tips);
+        return "算法提示：\n" + String.join("\n", tips);
     }
 
     private String toolGenerateTestCases(Question question) {
         String title = StringUtils.defaultString(question.getTitle());
         List<String> cases = new ArrayList<>();
-        cases.add("1) 最小输入规模（边界空值/单元素）");
-        cases.add("2) 最大输入规模（性能与复杂度压力）");
-        cases.add("3) 特殊构造输入（重复值、逆序、全相同、极端值）");
-        return "针对「" + title + "」建议补充测试：\n" + String.join("\n", cases);
+        cases.add("1) 示例测试用例：输入一组简单数据，验证基本功能。");
+        cases.add("2) 边界测试用例：输入边界值，测试程序边界条件处理。");
+        cases.add("3) 性能测试用例：输入大规模数据，测试程序性能和稳定性。");
+        return "测试用例建议：\n" + String.join("\n", cases);
     }
 
     private String toolSandboxExecute(Question question, AiChatSendRequest requestBody) {
@@ -737,7 +736,7 @@ public class AiChatServiceImpl implements AiChatService {
         }
         String firstOutput = CollUtil.isNotEmpty(response.getOutput()) ? response.getOutput().get(0) : "N/A";
         String status = response.getStatus() == null ? "unknown" : String.valueOf(response.getStatus());
-        return "沙箱执行完成：status=" + status + "，样例输出=" + StrUtil.sub(firstOutput, 0, 120);
+        return "沙箱执行完成，status=" + status + "，样例输出=" + StrUtil.sub(firstOutput, 0, 120);
     }
 
     private JudgeInfo parseJudgeInfo(String judgeInfoJson) {
@@ -759,7 +758,7 @@ public class AiChatServiceImpl implements AiChatService {
             promptBuilder.append("【最近判题结果】").append(requestBody.getLatestJudgeResult()).append("\n");
         }
         if (StringUtils.isNotBlank(requestBody.getUserCode())) {
-            promptBuilder.append("【用户当前代码（可用于错误分析，不允许直接返回完整可 AC 代码）】\n")
+            promptBuilder.append("【用户当前代码（仅用于分析，不直接返回完整 AC 代码）】\n")
                     .append(StrUtil.sub(requestBody.getUserCode(), 0, 4000)).append("\n");
         }
         if (CollUtil.isNotEmpty(toolEvents)) {
@@ -826,18 +825,16 @@ public class AiChatServiceImpl implements AiChatService {
     private String buildFallbackAnswer(String modelUserPrompt, List<AiToolEventVO> toolEvents) {
         StringBuilder sb = new StringBuilder();
         sb.append("我先给你一个不泄露完整代码的解题推进方案：\n");
-        sb.append("1. 明确输入输出和边界，先写出你自己的思路草图。\n");
+        sb.append("1. 明确输入输出和边界，先写出你的思路草图。\n");
         sb.append("2. 用样例和极端数据逐步验证，优先定位第一处错误分支。\n");
         sb.append("3. 再检查复杂度是否满足题目限制。\n");
-        if (CollUtil.isNotEmpty(toolEvents)) {
-            sb.append("\n可参考工具结果：\n");
-            for (AiToolEventVO eventVO : toolEvents) {
-                sb.append("- ").append(eventVO.getToolName()).append("：")
-                        .append(eventVO.getSummary()).append("\n");
-            }
+        sb.append("\n可参考工具结果：\n");
+        for (AiToolEventVO eventVO : toolEvents) {
+            sb.append("- ").append(eventVO.getToolName()).append("：")
+                    .append(eventVO.getSummary()).append("\n");
         }
         if (modelUserPrompt.contains("复杂度")) {
-            sb.append("\n复杂度分析建议：先给出现有解法的时间/空间复杂度，再找主循环或重复计算热点。");
+            sb.append("\n复杂度分析建议：先给出现有解法的时间/ 空间复杂度，再找主循环或重复计算热点。");
         }
         return sb.toString();
     }
@@ -855,7 +852,7 @@ public class AiChatServiceImpl implements AiChatService {
             return aiProperties.getRefuseMessage() + "\n\n你可以把你现有代码发我，我来按行帮你定位问题。";
         }
         if (looksLikeFullSolutionCode(output)) {
-            return aiProperties.getRefuseMessage() + "\n\n我可以继续帮你拆成伪代码步骤或只给关键函数思路。";
+            return aiProperties.getRefuseMessage() + "\n\n鎴戝彲浠ョ户缁府浣犳媶鎴愪吉浠ｇ爜姝ラ鎴栧彧缁欏叧閿嚱鏁版€濊矾銆?";
         }
         return output;
     }
@@ -920,3 +917,4 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 }
+

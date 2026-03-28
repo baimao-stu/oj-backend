@@ -11,50 +11,50 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for daily AI tool call counters.
+ * AI 工具日调用计数实体。
  */
 @Data
 @TableName("ai_tool_call_log")
 public class AiToolCallLog implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * OJ user id.
+     * OJ 用户编号。
      */
     private Long userId;
 
     /**
-     * Tool unique name.
+     * 工具唯一名称。
      */
     private String toolName;
 
     /**
-     * Date key in yyyy-MM-dd format.
+     * 日期键，格式 yyyy-MM-dd。
      */
     private String callDate;
 
     /**
-     * Number of calls on the date.
+     * 当日调用次数。
      */
     private Integer callCount;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -62,3 +62,4 @@ public class AiToolCallLog implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

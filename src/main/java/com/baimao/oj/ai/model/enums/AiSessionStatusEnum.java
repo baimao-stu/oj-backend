@@ -1,19 +1,19 @@
 package com.baimao.oj.ai.model.enums;
 
 /**
- * Status of AI chat session lifecycle.
+ * AI 会话生命周期状态。
  */
 public enum AiSessionStatusEnum {
     /**
-     * Session is active and can continue chatting.
+     * 会话处于激活状态，可继续对话。
      */
     ACTIVE(0),
     /**
-     * Session is archived after retention expiry.
+     * 会话因保留期到达而归档。
      */
     ARCHIVED(1),
     /**
-     * Session is disabled by rule/policy.
+     * 会话因规则/策略被禁用。
      */
     DISABLED(2);
 
@@ -27,3 +27,4 @@ public enum AiSessionStatusEnum {
         return value;
     }
 }
+

@@ -11,70 +11,70 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for AI chat session lifecycle records.
+ * AI 会话生命周期记录实体。
  */
 @Data
 @TableName("ai_chat_session")
 public class AiChatSession implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * OJ user id.
+     * OJ 用户编号。
      */
     private Long userId;
 
     /**
-     * OJ question id.
+     * OJ 题目编号。
      */
     private Long questionId;
 
     /**
-     * Contest id; 0 means non-contest context.
+     * 比赛编号；0 表示非比赛上下文。
      */
     private Long contestId;
 
     /**
-     * Session mode: normal / agent.
+     * 会话模式：普通 / 智能体。
      */
     private String mode;
 
     /**
-     * Session status defined by {@code AiSessionStatusEnum}.
+     * 会话状态，定义见 {@code AiSessionStatusEnum}。
      */
     private Integer status;
 
     /**
-     * Reason when session is disabled by policy.
+     * 策略禁用会话时的原因。
      */
     private String disableReason;
 
     /**
-     * Last message timestamp.
+     * 最后一条消息时间戳。
      */
     private Date lastMessageTime;
 
     /**
-     * Session expiration timestamp.
+     * 会话过期时间戳。
      */
     private Date expireTime;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -82,3 +82,4 @@ public class AiChatSession implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

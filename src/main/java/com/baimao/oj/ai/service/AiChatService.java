@@ -9,32 +9,33 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * AI chat domain service for session management and message generation.
+ * AI 聊天领域服务，负责会话管理与消息生成。
  */
 public interface AiChatService {
 
     /**
-     * Load or create a session and return history/messages for UI bootstrap.
+     * 加载或创建会话，并返回前端初始化所需历史消息。
      */
     AiChatSessionVO getSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request);
 
     /**
-     * Clear messages in current scoped session.
+     * 清空当前作用域会话消息。
      */
     Boolean clearSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request);
 
     /**
-     * Send one message in non-streaming mode.
+     * 以非流式方式发送一条消息。
      */
     AiChatMessageVO chat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request);
 
     /**
-     * Send one message in streaming mode with SSE events.
+     * 以 SSE 事件流方式发送一条消息。
      */
     SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request);
 
     /**
-     * Archive expired sessions according to retention policy.
+     * 按保留策略归档过期会话。
      */
     void archiveExpiredSessions();
 }
+

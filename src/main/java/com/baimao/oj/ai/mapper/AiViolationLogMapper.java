@@ -4,7 +4,8 @@ import com.baimao.oj.ai.model.entity.AiViolationLog;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
- * Mapper for AI violation audit records.
+ * AI 违规审计日志映射接口。
  */
 public interface AiViolationLogMapper extends BaseMapper<AiViolationLog> {
 }
+

@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * HTTP endpoints for AI session bootstrap, chat send, and SSE streaming.
+ * AI 会话初始化、消息发送与 SSE 流式输出接口。
  */
 @RestController
 @RequestMapping("/ai/chat")
@@ -27,7 +27,7 @@ public class AiChatController {
     private AiChatService aiChatService;
 
     /**
-     * Get current session context and message history.
+     * 获取当前会话上下文与历史消息。
      */
     @PostMapping("/session/get")
     public BaseResponse<AiChatSessionVO> getSession(@RequestBody AiChatSessionRequest aiChatSessionRequest,
@@ -36,7 +36,7 @@ public class AiChatController {
     }
 
     /**
-     * Clear current session messages.
+     * 清空当前会话消息。
      */
     @PostMapping("/session/clear")
     public BaseResponse<Boolean> clearSession(@RequestBody AiChatSessionRequest aiChatSessionRequest,
@@ -45,7 +45,7 @@ public class AiChatController {
     }
 
     /**
-     * Send a message and return the full assistant response.
+     * 发送消息并返回完整回复。
      */
     @PostMapping("/message/send")
     public BaseResponse<AiChatMessageVO> sendMessage(@RequestBody AiChatSendRequest aiChatSendRequest,
@@ -54,7 +54,7 @@ public class AiChatController {
     }
 
     /**
-     * Send a message and stream assistant response with SSE.
+     * 发送消息并通过 SSE 流式返回回复。
      */
     @PostMapping(value = "/message/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamMessage(@RequestBody AiChatSendRequest aiChatSendRequest,
@@ -62,3 +62,4 @@ public class AiChatController {
         return aiChatService.streamChat(aiChatSendRequest, request);
     }
 }
+

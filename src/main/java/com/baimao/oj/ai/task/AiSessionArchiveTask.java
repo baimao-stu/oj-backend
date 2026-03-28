@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Scheduled task for archiving expired AI chat sessions.
+ * 归档过期 AI 会话的定时任务。
  */
 @Component
 @Slf4j
@@ -17,7 +17,7 @@ public class AiSessionArchiveTask {
     private AiChatService aiChatService;
 
     /**
-     * Run periodically according to {@code ai.archive-cron}.
+     * 按 {@code ai.archive-cron} 周期执行。
      */
     @Scheduled(cron = "${ai.archive-cron:0 0/30 * * * ?}")
     public void archiveExpiredSession() {
@@ -28,3 +28,4 @@ public class AiSessionArchiveTask {
         }
     }
 }
+

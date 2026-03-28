@@ -4,7 +4,8 @@ import com.baimao.oj.ai.model.entity.AiSensitiveWord;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
- * Mapper for sensitive word dictionary used in moderation.
+ * 审核敏感词词典映射接口。
  */
 public interface AiSensitiveWordMapper extends BaseMapper<AiSensitiveWord> {
 }
+

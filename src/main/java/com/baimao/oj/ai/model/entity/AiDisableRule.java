@@ -11,60 +11,60 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for AI disable policy rules.
+ * AI 禁用策略规则实体。
  */
 @Data
 @TableName("ai_disable_rule")
 public class AiDisableRule implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * Scope type: GLOBAL/CONTEST/QUESTION/USER.
+     * 作用域类型常量：GLOBAL/CONTEST/QUESTION/USER。
      */
     private String scopeType;
 
     /**
-     * Scope id; usually 0 for GLOBAL.
+     * 作用域编号；GLOBAL 通常为 0。
      */
     private Long scopeId;
 
     /**
-     * Human-readable disable reason.
+     * 可读禁用原因。
      */
     private String reason;
 
     /**
-     * Rule start time, nullable.
+     * 规则开始时间，可为空。
      */
     private Date startTime;
 
     /**
-     * Rule end time, nullable.
+     * 规则结束时间，可为空。
      */
     private Date endTime;
 
     /**
-     * Enabled flag.
+     * 启用标记。
      */
     private Integer enabled;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -72,3 +72,4 @@ public class AiDisableRule implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

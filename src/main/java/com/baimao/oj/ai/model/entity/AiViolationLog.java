@@ -11,55 +11,55 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for compliance violation audit logs.
+ * 合规违规审计日志实体。
  */
 @Data
 @TableName("ai_violation_log")
 public class AiViolationLog implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * OJ user id.
+     * OJ 用户编号。
      */
     private Long userId;
 
     /**
-     * Session id reference.
+     * 会话编号引用。
      */
     private Long sessionId;
 
     /**
-     * Message id reference.
+     * 消息编号引用。
      */
     private Long messageId;
 
     /**
-     * Violation rule type identifier.
+     * 违规规则类型标识。
      */
     private String ruleType;
 
     /**
-     * Truncated violating content for audit.
+     * 用于审计的违规内容截断摘要。
      */
     private String contentSnippet;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -67,3 +67,4 @@ public class AiViolationLog implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+

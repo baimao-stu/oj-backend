@@ -266,5 +266,169 @@ insert ignore into ai_prompt_config(scene, versionNo, promptContent, enabled, is
 values ('normal', 1, '你是 OJ 学习助手（普通模式）。你只能提供题意理解、思路提示、错误定位、复杂度分析与优化建议，禁止输出可直接通过判题的完整代码。', 1, 1),
        ('agent', 1, '你是 OJ 学习助手（Agent 模式）。你可以基于工具结果给出分析，禁止输出可直接通过判题的完整代码。', 1, 1);
 
+-- AI 相关表
+-- ----------------------------
+-- Table structure for ai_chat_message
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_chat_message`;
+CREATE TABLE `ai_chat_message`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `sessionId` bigint(0) NOT NULL COMMENT '会话 id',
+  `role` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '角色：user/assistant',
+  `mode` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '模式：normal/agent',
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '消息内容',
+  `toolCalls` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL COMMENT '工具调用记录（json）',
+  `violation` int(0) NOT NULL DEFAULT 0 COMMENT '是否违规（0否 1是）',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_sessionId`(`sessionId`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 消息' ROW_FORMAT = Dynamic;
 
+-- ----------------------------
+-- Table structure for ai_chat_session
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_chat_session`;
+CREATE TABLE `ai_chat_session`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `userId` bigint(0) NOT NULL COMMENT '用户 id',
+  `questionId` bigint(0) NOT NULL COMMENT '题目 id',
+  `contestId` bigint(0) NOT NULL DEFAULT 0 COMMENT '竞赛 id（0 表示非竞赛）',
+  `mode` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'normal' COMMENT '模式：normal/agent',
+  `status` int(0) NOT NULL DEFAULT 0 COMMENT '会话状态：0进行中 1归档 2禁用',
+  `disableReason` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '禁用原因',
+  `lastMessageTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '最近消息时间',
+  `expireTime` datetime(0) NOT NULL COMMENT '过期时间',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_user_question_contest`(`userId`, `questionId`, `contestId`) USING BTREE,
+  INDEX `idx_questionId`(`questionId`) USING BTREE,
+  INDEX `idx_expireTime`(`expireTime`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 会话' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_disable_rule
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_disable_rule`;
+CREATE TABLE `ai_disable_rule`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `scopeType` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '范围：GLOBAL/CONTEST/QUESTION/USER',
+  `scopeId` bigint(0) NOT NULL DEFAULT 0 COMMENT '范围id（GLOBAL 为 0）',
+  `reason` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '禁用原因',
+  `startTime` datetime(0) NULL DEFAULT NULL COMMENT '生效时间',
+  `endTime` datetime(0) NULL DEFAULT NULL COMMENT '失效时间',
+  `enabled` int(0) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_scope`(`scopeType`, `scopeId`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 禁用规则' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_model_config
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_model_config`;
+CREATE TABLE `ai_model_config`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `provider` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '模型提供商',
+  `modelName` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '模型名',
+  `baseUrl` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '模型 baseUrl',
+  `apiKey` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '加密后 apiKey',
+  `priority` int(0) NOT NULL DEFAULT 100 COMMENT '优先级（越小越高）',
+  `enabled` int(0) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `isDefault` int(0) NOT NULL DEFAULT 0 COMMENT '是否默认模型',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_priority`(`priority`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 模型配置' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_prompt_config
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_prompt_config`;
+CREATE TABLE `ai_prompt_config`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `scene` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '场景：normal/agent',
+  `versionNo` int(0) NOT NULL DEFAULT 1 COMMENT '版本号',
+  `promptContent` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '系统提示词',
+  `enabled` int(0) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `isActive` int(0) NOT NULL DEFAULT 0 COMMENT '是否生效版本',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_scene`(`scene`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI Prompt 配置' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_sensitive_word
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_sensitive_word`;
+CREATE TABLE `ai_sensitive_word`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `word` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '敏感词',
+  `enabled` int(0) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 敏感词' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_tool_call_log
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_tool_call_log`;
+CREATE TABLE `ai_tool_call_log`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `userId` bigint(0) NOT NULL COMMENT '用户 id',
+  `toolName` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '工具名',
+  `callDate` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '调用日期（yyyy-MM-dd）',
+  `callCount` int(0) NOT NULL DEFAULT 0 COMMENT '调用次数',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_user_tool_day`(`userId`, `toolName`, `callDate`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 工具调用计数' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_tool_config
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_tool_config`;
+CREATE TABLE `ai_tool_config`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `toolName` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '工具名',
+  `enabled` int(0) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  `dailyLimit` int(0) NOT NULL DEFAULT 30 COMMENT '每日调用上限',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_tool_name`(`toolName`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 5 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 工具配置' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for ai_violation_log
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_violation_log`;
+CREATE TABLE `ai_violation_log`  (
+  `id` bigint(0) NOT NULL AUTO_INCREMENT COMMENT 'id',
+  `userId` bigint(0) NOT NULL COMMENT '用户 id',
+  `sessionId` bigint(0) NULL DEFAULT NULL COMMENT '会话 id',
+  `messageId` bigint(0) NULL DEFAULT NULL COMMENT '消息 id',
+  `ruleType` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '规则类型',
+  `contentSnippet` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '违规内容摘要',
+  `createTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) COMMENT '创建时间',
+  `updateTime` datetime(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0) ON UPDATE CURRENT_TIMESTAMP(0) COMMENT '更新时间',
+  `isDelete` tinyint(0) NOT NULL DEFAULT 0 COMMENT '是否删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_userId`(`userId`) USING BTREE,
+  INDEX `idx_ruleType`(`ruleType`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 违规日志' ROW_FORMAT = Dynamic;
 

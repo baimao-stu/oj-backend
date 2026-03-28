@@ -5,36 +5,37 @@ import lombok.Data;
 import java.io.Serializable;
 
 /**
- * Request payload for one chat turn.
+ * 单轮对话请求载荷。
  */
 @Data
 public class AiChatSendRequest implements Serializable {
     /**
-     * Question id in OJ.
+     * OJ 题目编号。
      */
     private Long questionId;
     /**
-     * Contest id; 0 or null means non-contest scenario.
+     * 比赛编号；0 或空值表示非比赛场景。
      */
     private Long contestId;
     /**
-     * Chat mode: normal or agent.
+     * 聊天模式：普通 或 智能体。
      */
     private String mode;
     /**
-     * User message content.
+     * 用户消息内容。
      */
     private String message;
     /**
-     * Source code language of the user submission.
+     * 用户提交代码语言。
      */
     private String language;
     /**
-     * User code snippet used for analysis and tool calls.
+     * 用于分析与工具调用的用户代码片段。
      */
     private String userCode;
     /**
-     * Latest judge result summary from OJ.
+     * 来自 OJ 的最新判题结果摘要。
      */
     private String latestJudgeResult;
 }
+

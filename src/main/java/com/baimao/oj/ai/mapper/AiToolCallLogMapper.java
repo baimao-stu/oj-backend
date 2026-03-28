@@ -4,7 +4,8 @@ import com.baimao.oj.ai.model.entity.AiToolCallLog;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
- * Mapper for per-user daily AI tool call counters.
+ * 用户维度 AI 工具日调用计数映射接口。
  */
 public interface AiToolCallLogMapper extends BaseMapper<AiToolCallLog> {
 }
+

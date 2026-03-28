@@ -3,15 +3,15 @@ package com.baimao.oj.ai.model.enums;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * Supported AI chat modes.
+ * 支持的 AI 聊天模式。
  */
 public enum AiChatModeEnum {
     /**
-     * Plain chat mode without autonomous tool orchestration.
+     * 普通聊天模式，不进行自主工具编排。
      */
     NORMAL("normal"),
     /**
-     * Agent mode that can trigger built-in tools.
+     * 智能体模式，可触发内置工具。
      */
     AGENT("agent");
 
@@ -37,3 +37,4 @@ public enum AiChatModeEnum {
         return NORMAL;
     }
 }
+

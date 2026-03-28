@@ -11,40 +11,40 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * Entity for sensitive words used by moderation filters.
+ * 审核过滤敏感词实体。
  */
 @Data
 @TableName("ai_sensitive_word")
 public class AiSensitiveWord implements Serializable {
 
     /**
-     * Primary key.
+     * 主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * Sensitive keyword.
+     * 敏感关键词。
      */
     private String word;
 
     /**
-     * Enabled flag.
+     * 启用标记。
      */
     private Integer enabled;
 
     /**
-     * Record creation time.
+     * 记录创建时间。
      */
     private Date createTime;
 
     /**
-     * Record update time.
+     * 记录更新时间。
      */
     private Date updateTime;
 
     /**
-     * Logical deletion flag.
+     * 逻辑删除标记。
      */
     @TableLogic
     private Byte isDelete;
@@ -52,3 +52,4 @@ public class AiSensitiveWord implements Serializable {
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
 }
+
