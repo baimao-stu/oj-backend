@@ -11,7 +11,7 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * AI 禁用策略规则实体。
+ * AI 禁用策略规则实体。不同场景下禁用 AI
  */
 @Data
 @TableName("ai_disable_rule")
@@ -29,7 +29,7 @@ public class AiDisableRule implements Serializable {
     private String scopeType;
 
     /**
-     * 作用域编号；GLOBAL 通常为 0。
+     * 作用域编号；GLOBAL为 0，其余与contest的id、question的id、user的id匹配
      */
     private Long scopeId;
 

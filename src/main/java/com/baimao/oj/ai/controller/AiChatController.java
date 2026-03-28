@@ -45,7 +45,7 @@ public class AiChatController {
     }
 
     /**
-     * 发送消息并返回完整回复。
+     * 发送消息并返回完整回复，主要携带的消息（AiChatSendRequest：用户消息、题目ID、语言、代码）
      */
     @PostMapping("/message/send")
     public BaseResponse<AiChatMessageVO> sendMessage(@RequestBody AiChatSendRequest aiChatSendRequest,
