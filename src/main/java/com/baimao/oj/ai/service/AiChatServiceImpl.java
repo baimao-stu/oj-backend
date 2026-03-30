@@ -25,6 +25,7 @@ import com.baimao.oj.ai.model.enums.AiSessionStatusEnum;
 import com.baimao.oj.ai.model.vo.AiChatMessageVO;
 import com.baimao.oj.ai.model.vo.AiChatSessionVO;
 import com.baimao.oj.ai.model.vo.AiToolEventVO;
+import com.baimao.oj.ai.tools.AgentToolsManager;
 import com.baimao.oj.common.ErrorCode;
 import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.model.entity.Contest;
@@ -45,7 +46,6 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SafeGuardAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
-import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -140,7 +140,7 @@ public class AiChatServiceImpl implements AiChatService {
     private AiDatabaseChatMemory aiDatabaseChatMemory;
 
     @Resource
-    private AiAgentTools aiAgentTools;
+    private AgentToolsManager agentToolsManager;
 
     /**
      * SSE 流式响应使用独立线程池异步执行，避免阻塞请求线程。
@@ -221,7 +221,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 内部仍然复用统一的 doChat 逻辑，只是在结果返回阶段拆成 SSE 事件。
      */
     public SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
-        SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = new SseEmitter(180000L);
         streamExecutor.submit(() -> {
             try {
                 doChat(aiChatSendRequest, request, emitter);
@@ -311,7 +311,7 @@ public class AiChatServiceImpl implements AiChatService {
         if (emitter != null) {
             sendEvent(emitter, EVENT_META, buildMetaPayload(session, assistantMessage));
             streamText(emitter, assistantContent);
-            sendEvent(emitter, EVENT_DONE, assistantMessage.getId());
+            sendEvent(emitter, EVENT_DONE, buildDonePayload(assistantMessage, assistantContent));
         }
 
         return toMessageVO(assistantMessage);
@@ -593,10 +593,13 @@ public class AiChatServiceImpl implements AiChatService {
                     .system(systemPrompt)
                     .user(user -> user.text(USER_PROMPT_TEMPLATE)
                             .params(buildUserPromptParams(question, requestBody)));
+//                    .options(DashScopeChatOptions.builder()
+//                            .model("qwen-max")
+//                            .build());
 
             if (AiChatModeEnum.AGENT == modeEnum) {
                 // Agent 模式下把项目里的题目、用户、代码等上下文通过 toolContext 透传给工具层。
-                ToolCallback[] toolCallbacks = aiAgentTools.getEnabledToolCallbacks();
+                ToolCallback[] toolCallbacks = agentToolsManager.getEnabledToolCallbacks();
                 if (toolCallbacks.length > 0) {
                     requestSpec = requestSpec
                             .toolCallbacks(toolCallbacks)
@@ -616,20 +619,39 @@ public class AiChatServiceImpl implements AiChatService {
      */
     private SafeGuardAdvisor buildSafeGuardAdvisor(User loginUser, AiChatSession session, String userMessage) {
         List<String> sensitiveWords = listSensitiveWords();
-        return new SafeGuardAdvisor(sensitiveWords, SAFE_GUARD_BLOCKED_RESPONSE, 0) {
+        return new ViolationLoggingSafeGuardAdvisor(sensitiveWords, loginUser, session, userMessage);
+    }
 
-            @Override
-            public ChatClientResponse adviseCall(ChatClientRequest advisedRequest, CallAdvisorChain chain) {
-                saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
-                return super.adviseCall(advisedRequest, chain);
-            }
+    /**
+     * 具名 SafeGuardAdvisor，避免匿名类名称为空导致 advisorName 校验失败。
+     */
+    private class ViolationLoggingSafeGuardAdvisor extends SafeGuardAdvisor {
 
-            @Override
-            public Flux<ChatClientResponse> adviseStream(ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
-                saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
-                return super.adviseStream(advisedRequest, chain);
-            }
-        };
+        private final List<String> sensitiveWords;
+        private final User loginUser;
+        private final AiChatSession session;
+        private final String userMessage;
+
+        private ViolationLoggingSafeGuardAdvisor(List<String> sensitiveWords, User loginUser,
+                                                 AiChatSession session, String userMessage) {
+            super(sensitiveWords, SAFE_GUARD_BLOCKED_RESPONSE, 0);
+            this.sensitiveWords = sensitiveWords;
+            this.loginUser = loginUser;
+            this.session = session;
+            this.userMessage = userMessage;
+        }
+
+        @Override
+        public ChatClientResponse adviseCall(ChatClientRequest advisedRequest, CallAdvisorChain chain) {
+            saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
+            return super.adviseCall(advisedRequest, chain);
+        }
+
+        @Override
+        public Flux<ChatClientResponse> adviseStream(ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
+            saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
+            return super.adviseStream(advisedRequest, chain);
+        }
     }
 
     /**
@@ -672,8 +694,8 @@ public class AiChatServiceImpl implements AiChatService {
         params.put("title", StringUtils.defaultString(question.getTitle()));
         params.put("content", StringUtils.defaultString(question.getContent()));
         params.put("language", StringUtils.defaultIfBlank(requestBody.getLanguage(), "unknown"));
-        params.put("latestJudgeResult", StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"));
-        params.put("userCode", trimUserCode(requestBody.getUserCode()));
+//        params.put("latestJudgeResult", StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"));
+//        params.put("userCode", trimUserCode(requestBody.getUserCode()));
         params.put("message", StringUtils.defaultString(requestBody.getMessage()));
         return params;
     }
@@ -696,8 +718,8 @@ public class AiChatServiceImpl implements AiChatService {
                                                  AiChatSendRequest requestBody, SseEmitter emitter,
                                                  List<AiToolEventVO> toolEvents) {
         Map<String, Object> toolContext = new LinkedHashMap<>();
-        toolContext.put(AiAgentTools.TOOL_RUNTIME_CONTEXT_KEY,
-                new AiAgentTools.RuntimeContext(loginUser.getId(), question, contestId, requestBody, emitter, toolEvents));
+        toolContext.put(AgentToolsManager.TOOL_RUNTIME_CONTEXT_KEY,
+                new AgentToolsManager.RuntimeContext(loginUser.getId(), question, contestId, requestBody, emitter, toolEvents));
         return toolContext;
     }
 
@@ -746,6 +768,14 @@ public class AiChatServiceImpl implements AiChatService {
         map.put("sessionId", session.getId());
         map.put("messageId", message.getId());
         map.put("mode", message.getMode());
+        return map;
+    }
+
+    private Map<String, Object> buildDonePayload(AiChatMessage message, String content) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("messageId", message.getId());
+        map.put("mode", message.getMode());
+        map.put("content", StringUtils.defaultString(content));
         return map;
     }
 
