@@ -4,9 +4,13 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.baimao.oj.ai.config.AiProperties;
+import com.baimao.oj.ai.mapper.AiChatMessageMapper;
+import com.baimao.oj.ai.mapper.AiChatSessionMapper;
+import com.baimao.oj.ai.mapper.AiDisableRuleMapper;
+import com.baimao.oj.ai.mapper.AiPromptConfigMapper;
+import com.baimao.oj.ai.mapper.AiSensitiveWordMapper;
+import com.baimao.oj.ai.mapper.AiViolationLogMapper;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import com.baimao.oj.ai.model.dto.AiChatSessionRequest;
 import com.baimao.oj.ai.model.entity.AiChatMessage;
@@ -14,54 +18,43 @@ import com.baimao.oj.ai.model.entity.AiChatSession;
 import com.baimao.oj.ai.model.entity.AiDisableRule;
 import com.baimao.oj.ai.model.entity.AiPromptConfig;
 import com.baimao.oj.ai.model.entity.AiSensitiveWord;
-import com.baimao.oj.ai.model.entity.AiToolCallLog;
-import com.baimao.oj.ai.model.entity.AiToolConfig;
 import com.baimao.oj.ai.model.entity.AiViolationLog;
 import com.baimao.oj.ai.model.enums.AiChatModeEnum;
 import com.baimao.oj.ai.model.enums.AiRuleScopeEnum;
 import com.baimao.oj.ai.model.enums.AiSessionStatusEnum;
-import com.baimao.oj.ai.mapper.AiChatMessageMapper;
-import com.baimao.oj.ai.mapper.AiChatSessionMapper;
-import com.baimao.oj.ai.mapper.AiDisableRuleMapper;
-import com.baimao.oj.ai.mapper.AiPromptConfigMapper;
-import com.baimao.oj.ai.mapper.AiSensitiveWordMapper;
-import com.baimao.oj.ai.mapper.AiToolCallLogMapper;
-import com.baimao.oj.ai.mapper.AiToolConfigMapper;
-import com.baimao.oj.ai.mapper.AiViolationLogMapper;
 import com.baimao.oj.ai.model.vo.AiChatMessageVO;
 import com.baimao.oj.ai.model.vo.AiChatSessionVO;
 import com.baimao.oj.ai.model.vo.AiToolEventVO;
+import com.baimao.oj.ai.tools.AgentToolsManager;
 import com.baimao.oj.common.ErrorCode;
 import com.baimao.oj.exception.BusinessException;
-import com.baimao.oj.judge.codesangbox.CodeSandbox;
-import com.baimao.oj.judge.codesangbox.CodeSandboxFactory;
-import com.baimao.oj.judge.codesangbox.model.ExecuteCodeRequest;
-import com.baimao.oj.judge.codesangbox.model.ExecuteCodeResponse;
-import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
-import com.baimao.oj.model.dto.question.JudgeCase;
 import com.baimao.oj.model.entity.Contest;
 import com.baimao.oj.model.entity.Question;
-import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.entity.User;
 import com.baimao.oj.service.ContestService;
 import com.baimao.oj.service.QuestionService;
-import com.baimao.oj.service.QuestionSubmitService;
 import com.baimao.oj.service.UserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClientRequest;
+import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.SafeGuardAdvisor;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 
-import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,55 +63,95 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-import static com.baimao.oj.ai.service.Constant.*;
-import static com.baimao.oj.model.enums.JudgeInfoMessageEnum.SYSTEM_ERROR;
+import static com.baimao.oj.ai.service.Constant.DEFAULT_AGENT_SYSTEM_PROMPT;
+import static com.baimao.oj.ai.service.Constant.DEFAULT_NORMAL_SYSTEM_PROMPT;
+import static com.baimao.oj.ai.service.Constant.EVENT_DELTA;
+import static com.baimao.oj.ai.service.Constant.EVENT_DONE;
+import static com.baimao.oj.ai.service.Constant.EVENT_ERROR;
+import static com.baimao.oj.ai.service.Constant.EVENT_META;
+import static com.baimao.oj.ai.service.Constant.ROLE_ASSISTANT;
+import static com.baimao.oj.ai.service.Constant.ROLE_USER;
 
 @Service
 @Slf4j
 /**
- * AI 聊天核心实现：
- * 负责会话生命周期、合规校验、工具编排与 SSE 流式输出。
+ * AI 对话服务核心实现。
+ * 这里保留了项目原有的会话、消息、风控、SSE 推送等业务逻辑，
+ * 同时把上下文记忆和工具调用切换到 Spring AI 的原生能力上。
  */
 public class AiChatServiceImpl implements AiChatService {
 
+    private static final String SAFE_GUARD_BLOCKED_RESPONSE = "由于内容敏感，我无法回复。我们能否换个说法或者讨论其他话题？";
+    private static final String AI_CALL_FAILED_RESPONSE = "抱歉，我暂时无法回答你的问题。";
+
+    /**
+     * 统一的用户提示词模板。
+     * 题目信息、语言和用户代码都通过参数注入，
+     * 避免继续手工拼接大段字符串。
+     */
+    private static final String USER_PROMPT_TEMPLATE = """
+            Question Title:
+            {title}
+
+            Question Content:
+            {content}
+
+            Programming Language:
+            {language}
+
+            User Request:
+            {message}
+            """;
+
     @Resource
     private UserService userService;
+
     @Resource
     private QuestionService questionService;
+
     @Resource
     private ContestService contestService;
-    @Resource
-    private QuestionSubmitService questionSubmitService;
+
     @Resource
     private AiChatSessionMapper aiChatSessionMapper;
+
     @Resource
     private AiChatMessageMapper aiChatMessageMapper;
+
     @Resource
     private AiPromptConfigMapper aiPromptConfigMapper;
+
     @Resource
     private AiDisableRuleMapper aiDisableRuleMapper;
+
     @Resource
     private AiSensitiveWordMapper aiSensitiveWordMapper;
+
     @Resource
     private AiViolationLogMapper aiViolationLogMapper;
-    @Resource
-    private AiToolConfigMapper aiToolConfigMapper;
-    @Resource
-    private AiToolCallLogMapper aiToolCallLogMapper;
+
     @Resource
     private AiProperties aiProperties;
+
     @Resource
     private ChatClient.Builder chatClientBuilder;
 
-    @Value("${codesandbox.type:sample}")
-    private String codeSandboxType;
+    @Resource
+    private AiDatabaseChatMemory aiDatabaseChatMemory;
 
-    private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+    @Resource
+    private AgentToolsManager agentToolsManager;
 
     /**
-     * 加载或创建作用域会话，并返回按时间排序的历史消息。
+     * SSE 流式响应使用独立线程池异步执行，避免阻塞请求线程。
      */
+    private final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+
     @Override
+    /**
+     * 获取当前题目的 AI 会话。
+     * 如果会话不存在则自动创建，并回填历史消息给前端。
+     */
     public AiChatSessionVO getSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request) {
         checkAiEnabled();
         validateSessionRequest(aiChatSessionRequest);
@@ -134,7 +167,8 @@ public class AiChatServiceImpl implements AiChatService {
         refreshSessionStatus(session, disableReason);
 
         List<AiChatMessageVO> messages = listSessionMessages(session.getId()).stream()
-                .map(this::toMessageVO).collect(Collectors.toList());
+                .map(this::toMessageVO)
+                .collect(Collectors.toList());
         AiChatSessionVO sessionVO = new AiChatSessionVO();
         sessionVO.setSessionId(session.getId());
         sessionVO.setStatus(session.getStatus());
@@ -145,10 +179,10 @@ public class AiChatServiceImpl implements AiChatService {
         return sessionVO;
     }
 
-    /**
-     * 清空当前作用域会话消息，并重置其状态与模式。
-     */
     @Override
+    /**
+     * 清空指定题目下的聊天记录，但保留会话本身，便于前端继续复用 sessionId。
+     */
     public Boolean clearSession(AiChatSessionRequest aiChatSessionRequest, HttpServletRequest request) {
         checkAiEnabled();
         validateSessionRequest(aiChatSessionRequest);
@@ -162,32 +196,32 @@ public class AiChatServiceImpl implements AiChatService {
         deleteWrapper.eq(AiChatMessage::getSessionId, session.getId());
         aiChatMessageMapper.delete(deleteWrapper);
         /**
-         * 清除会话消息后，将当前会话重置一个新的上下文（哪个用户对应哪道题的会话），复用 session id
+         * 清除会话消息后，将当前会话重置一个新的上下文（当前用户），复用 session id
          */
         session.setStatus(AiSessionStatusEnum.ACTIVE.getValue());
         session.setDisableReason(null);
         session.setLastMessageTime(new Date());
         session.setExpireTime(buildExpireTime());
-        // 默认恢复为 normal模式
         session.setMode(AiChatModeEnum.NORMAL.getValue());
         aiChatSessionMapper.updateById(session);
         return true;
     }
 
-    /**
-     * 非流式聊天入口。
-     */
     @Override
+    /**
+     * 非流式对话入口。
+     */
     public AiChatMessageVO chat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
         return doChat(aiChatSendRequest, request, null);
     }
 
-    /**
-     * 基于 SSE 的流式聊天入口。
-     */
     @Override
+    /**
+     * 流式对话入口。
+     * 内部仍然复用统一的 doChat 逻辑，只是在结果返回阶段拆成 SSE 事件。
+     */
     public SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
-        final SseEmitter emitter = new SseEmitter(0L);
+        SseEmitter emitter = new SseEmitter(180000L);
         streamExecutor.submit(() -> {
             try {
                 doChat(aiChatSendRequest, request, emitter);
@@ -205,11 +239,10 @@ public class AiChatServiceImpl implements AiChatService {
         return emitter;
     }
 
-    /**
-     * 归档（逻辑上的清理）仍为激活状态但已过期的会话。
-     * 比如用户已经30天没打开与某道题的会话，那么这道题的会话将被归档。30天后再次打开的会话就是新的会话了
-     */
     @Override
+    /**
+     * 定时归档（清理）长时间未使用的会话（状态设置为归档，而非 active）。
+     */
     public void archiveExpiredSessions() {
         LambdaQueryWrapper<AiChatSession> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(AiChatSession::getStatus, AiSessionStatusEnum.ACTIVE.getValue());
@@ -221,9 +254,17 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 
+    /**
+     * 单轮对话主流程：
+     * 1. 校验题目、会话和风控状态
+     * 2. 调用 Spring AI 生成回复
+     * 3. 持久化用户消息和助手消息
+     * 4. 按需推送 SSE 事件
+     */
     private AiChatMessageVO doChat(AiChatSendRequest requestBody, HttpServletRequest request, SseEmitter emitter) {
         checkAiEnabled();
         validateSendRequest(requestBody);
+        AiChatModeEnum modeEnum = AiChatModeEnum.fromValue(requestBody.getMode());
         User loginUser = userService.getLoginUser(request);
         Question question = questionService.getById(requestBody.getQuestionId());
         if (question == null) {
@@ -232,61 +273,37 @@ public class AiChatServiceImpl implements AiChatService {
         Long contestId = normalizeContestId(requestBody.getContestId());
         AiChatSession session = getOrCreateSession(loginUser.getId(), question.getId(), contestId);
         archiveIfExpired(session);
-        // 此次ai会话请求是否被禁止（某道题、某个比赛、某个用户），返回 null则没有被禁用
+
         String disableReason = checkDisableReason(loginUser.getId(), question.getId(), contestId);
         if (StringUtils.isNotBlank(disableReason)) {
             refreshSessionStatus(session, disableReason);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, disableReason);
         }
 
-        // 用户提示词
         String userMessage = requestBody.getMessage().trim();
-        // 敏感词拦截
-        blockSensitiveInput(loginUser.getId(), session.getId(), userMessage);
         if (containsPromptInjection(userMessage)) {
-            // 若出现prompt注入，记录违规日志并拦截请求
             saveViolation(loginUser.getId(), session.getId(), null, "prompt_injection", userMessage);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "检测到疑似提示词注入行为，请求已被拦截");
         }
 
-        AiChatMessage userDbMessage = new AiChatMessage();
-        userDbMessage.setSessionId(session.getId());
-        userDbMessage.setRole(ROLE_USER);
-        userDbMessage.setMode(AiChatModeEnum.fromValue(requestBody.getMode()).getValue());
-        userDbMessage.setContent(userMessage);
-        userDbMessage.setViolation(0);
-        aiChatMessageMapper.insert(userDbMessage);
-
-        // 获取上下文及系统提示词
-        List<AiChatMessage> history = listRecentMessages(session.getId(), aiProperties.getMaxHistoryMessages());
-        String systemPrompt = getSystemPrompt(AiChatModeEnum.fromValue(requestBody.getMode()));
-
-        // agent模式：执行工具
+        // 先调用模型，生成成功后再落库当前轮用户消息，避免 memory advisor 重复注入本轮输入。
+        String systemPrompt = getSystemPrompt(modeEnum);
         List<AiToolEventVO> toolEvents = new ArrayList<>();
-        if (AiChatModeEnum.AGENT == AiChatModeEnum.fromValue(requestBody.getMode())) {
-            toolEvents = runAgentTools(loginUser, question, contestId, requestBody, emitter);
-        }
 
-        // 构建用户提示词（用户请求消息、题目信息、编程语言）并调用大模型
-        String modelUserPrompt = buildModelUserPrompt(question, requestBody, toolEvents);
-        // 大模型返回的消息
-        String assistantContent = generateAssistantContent(systemPrompt, history, modelUserPrompt, toolEvents);
-//        assistantContent = enforceCompliance(assistantContent, userMessage);
-        // 加一层过滤：如果大模型输出包含敏感词，则记录违规日志并替换为提示语
-        assistantContent = moderateOutput(loginUser.getId(), session.getId(), assistantContent);
+        String assistantContent = generateAssistantContent(systemPrompt, session, loginUser, question,
+                contestId, requestBody, emitter, toolEvents, modeEnum);
+        // AI 调用失败
+//        if(AI_CALL_FAILED_RESPONSE.equals(assistantContent)) {
+//            saveViolation(loginUser.getId(), session.getId(), null, "call AI failed", userMessage);
+//        }
 
-        AiChatMessage assistantMessage = new AiChatMessage();
-        assistantMessage.setSessionId(session.getId());
-        assistantMessage.setRole(ROLE_ASSISTANT);
-        assistantMessage.setMode(AiChatModeEnum.fromValue(requestBody.getMode()).getValue());
-        assistantMessage.setContent(assistantContent);
-        assistantMessage.setToolCalls(JSONUtil.toJsonStr(toolEvents));
-        assistantMessage.setViolation(0);
-        aiChatMessageMapper.insert(assistantMessage);
+        saveMessage(session.getId(), ROLE_USER, modeEnum.getValue(), userMessage, null);
+        AiChatMessage assistantMessage = saveMessage(session.getId(), ROLE_ASSISTANT, modeEnum.getValue(),
+                assistantContent, JSONUtil.toJsonStr(toolEvents));
 
         session.setStatus(AiSessionStatusEnum.ACTIVE.getValue());
         session.setDisableReason(null);
-        session.setMode(AiChatModeEnum.fromValue(requestBody.getMode()).getValue());
+        session.setMode(modeEnum.getValue());
         session.setLastMessageTime(new Date());
         session.setExpireTime(buildExpireTime());
         aiChatSessionMapper.updateById(session);
@@ -294,10 +311,25 @@ public class AiChatServiceImpl implements AiChatService {
         if (emitter != null) {
             sendEvent(emitter, EVENT_META, buildMetaPayload(session, assistantMessage));
             streamText(emitter, assistantContent);
-            sendEvent(emitter, EVENT_DONE, assistantMessage.getId());
+            sendEvent(emitter, EVENT_DONE, buildDonePayload(assistantMessage, assistantContent));
         }
 
         return toMessageVO(assistantMessage);
+    }
+
+    /**
+     * 统一的消息落库方法，保证用户消息和助手消息的结构一致。
+     */
+    private AiChatMessage saveMessage(Long sessionId, String role, String mode, String content, String toolCalls) {
+        AiChatMessage message = new AiChatMessage();
+        message.setSessionId(sessionId);
+        message.setRole(role);
+        message.setMode(mode);
+        message.setContent(content);
+        message.setToolCalls(toolCalls);
+        message.setViolation(0);
+        aiChatMessageMapper.insert(message);
+        return message;
     }
 
     private void checkAiEnabled() {
@@ -322,14 +354,15 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 规范化比赛ID，null或负数表示当前会话在非比赛场景，统一转换为0
-     * @param contestId
-     * @return
+     * 标准化比赛 id，非比赛场景统一使用 0。
      */
     private Long normalizeContestId(Long contestId) {
         return contestId == null ? 0L : contestId;
     }
 
+    /**
+     * 查询当前用户在“题目 + 比赛”维度下最近的会话。
+     */
     private AiChatSession findSession(Long userId, Long questionId, Long contestId) {
         LambdaQueryWrapper<AiChatSession> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(AiChatSession::getUserId, userId);
@@ -340,6 +373,9 @@ public class AiChatServiceImpl implements AiChatService {
         return aiChatSessionMapper.selectOne(queryWrapper);
     }
 
+    /**
+     * 获取或创建会话。
+     */
     private AiChatSession getOrCreateSession(Long userId, Long questionId, Long contestId) {
         AiChatSession session = findSession(userId, questionId, contestId);
         if (session != null) {
@@ -349,7 +385,6 @@ public class AiChatServiceImpl implements AiChatService {
         newSession.setUserId(userId);
         newSession.setQuestionId(questionId);
         newSession.setContestId(contestId);
-        /** 开启的会话默认是normal模式 */
         newSession.setMode(AiChatModeEnum.NORMAL.getValue());
         newSession.setStatus(AiSessionStatusEnum.ACTIVE.getValue());
         newSession.setLastMessageTime(new Date());
@@ -358,10 +393,16 @@ public class AiChatServiceImpl implements AiChatService {
         return newSession;
     }
 
+    /**
+     * 根据保留策略计算会话过期时间。
+     */
     private Date buildExpireTime() {
         return DateUtil.offsetDay(new Date(), aiProperties.getRetentionDays());
     }
 
+    /**
+     * 如果会话已过期，则自动将其状态调整为已归档。
+     */
     private void archiveIfExpired(AiChatSession session) {
         if (session == null) {
             return;
@@ -374,6 +415,9 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 
+    /**
+     * 根据禁用规则刷新会话状态。
+     */
     private void refreshSessionStatus(AiChatSession session, String disableReason) {
         if (session == null) {
             return;
@@ -392,31 +436,13 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 获取会话所有的消息列表
-     * @param sessionId
-     * @return
+     * 查询指定会话的全部消息，按时间正序返回，主要用于前端初始化。
      */
     private List<AiChatMessage> listSessionMessages(Long sessionId) {
         LambdaQueryWrapper<AiChatMessage> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(AiChatMessage::getSessionId, sessionId);
         queryWrapper.orderByAsc(AiChatMessage::getId);
         return aiChatMessageMapper.selectList(queryWrapper);
-    }
-
-    /**
-     * 获取会话最近的消息列表（上下文，最多20条）
-     * @param sessionId
-     * @param limit
-     * @return
-     */
-    private List<AiChatMessage> listRecentMessages(Long sessionId, Integer limit) {
-        LambdaQueryWrapper<AiChatMessage> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AiChatMessage::getSessionId, sessionId);
-        queryWrapper.orderByDesc(AiChatMessage::getId);
-        queryWrapper.last("limit " + Math.max(limit == null ? 20 : limit, 1));
-        List<AiChatMessage> list = aiChatMessageMapper.selectList(queryWrapper);
-        list.sort((a, b) -> a.getId().compareTo(b.getId()));
-        return list;
     }
 
     private AiChatMessageVO toMessageVO(AiChatMessage message) {
@@ -426,11 +452,8 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 当前会话是否有被禁用的理由，优先级为：比赛 > 题目 > 用户 > 全局
-     * @param userId
-     * @param questionId
-     * @param contestId
-     * @return
+     * 检查当前会话是否命中禁用规则。
+     * 优先级：比赛 > 题目 > 用户 > 全局。
      */
     private String checkDisableReason(Long userId, Long questionId, Long contestId) {
         if (contestId != null && contestId > 0) {
@@ -471,8 +494,7 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 获取所有禁用规则
-     * @return
+     * 查询当前生效中的禁用规则。
      */
     private List<AiDisableRule> listActiveDisableRules() {
         Date now = new Date();
@@ -484,53 +506,18 @@ public class AiChatServiceImpl implements AiChatService {
         return aiDisableRuleMapper.selectList(queryWrapper);
     }
 
-    /**
-     * 用户提示词包含敏感词则抛出异常
-     * @param userId
-     * @param sessionId
-     * @param text
-     */
-    private void blockSensitiveInput(Long userId, Long sessionId, String text) {
-        if (StringUtils.isBlank(text)) {
-            return;
-        }
-        List<String> sensitiveWords = listSensitiveWords();
-        for (String sensitiveWord : sensitiveWords) {
-            if (text.contains(sensitiveWord)) {
-                saveViolation(userId, sessionId, null, "input_sensitive", text);
-                throw new BusinessException(ErrorCode.OPERATION_ERROR, "输入内容包含敏感词");
-            }
-        }
-    }
-
-    private String moderateOutput(Long userId, Long sessionId, String text) {
-        if (StringUtils.isBlank(text)) {
-            return text;
-        }
-        List<String> sensitiveWords = listSensitiveWords();
-        for (String sensitiveWord : sensitiveWords) {
-            if (text.contains(sensitiveWord)) {
-                saveViolation(userId, sessionId, null, "output_sensitive", text);
-//                return "输出内容包含敏感词，已被过滤";
-                return SYSTEM_ERROR.getText();
-            }
-        }
-        return text;
-    }
-
-    /**
-     * 获取系统的敏感词列表
-     * @return
-     */
     private List<String> listSensitiveWords() {
         LambdaQueryWrapper<AiSensitiveWord> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(AiSensitiveWord::getEnabled, 1);
         List<AiSensitiveWord> words = aiSensitiveWordMapper.selectList(queryWrapper);
-        return words.stream().map(AiSensitiveWord::getWord).filter(StringUtils::isNotBlank).collect(Collectors.toList());
+        return words.stream()
+                .map(AiSensitiveWord::getWord)
+                .filter(StringUtils::isNotBlank)
+                .collect(Collectors.toList());
     }
 
     /**
-     * Prompt注入检测
+     * 提示词注入检测。
      * @param text
      * @return
      */
@@ -539,23 +526,21 @@ public class AiChatServiceImpl implements AiChatService {
             return false;
         }
         String lowerCase = text.toLowerCase();
-        return lowerCase.contains("忽略之前")
-                || lowerCase.contains("ignore previous")
+        return lowerCase.contains("ignore previous")
+                || lowerCase.contains("developer message")
                 || lowerCase.contains("系统提示")
-                || lowerCase.contains("developer message");
+                || lowerCase.contains("忽略之前");
     }
 
     /**
-     * 获取系统提示词
-     * @param modeEnum
-     * @return
+     * 获取系统提示词。
+     * 优先使用数据库中当前激活的提示词配置，否则退回默认模板。
      */
     private String getSystemPrompt(AiChatModeEnum modeEnum) {
         LambdaQueryWrapper<AiPromptConfig> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(AiPromptConfig::getScene, modeEnum.getValue());
         queryWrapper.eq(AiPromptConfig::getEnabled, 1);
         queryWrapper.eq(AiPromptConfig::getIsActive, 1);
-        // 取版本最新的系统提示词
         queryWrapper.orderByDesc(AiPromptConfig::getVersionNo);
         queryWrapper.last("limit 1");
         AiPromptConfig promptConfig = aiPromptConfigMapper.selectOne(queryWrapper);
@@ -568,358 +553,189 @@ public class AiChatServiceImpl implements AiChatService {
         return DEFAULT_NORMAL_SYSTEM_PROMPT;
     }
 
-    private List<AiToolEventVO> runAgentTools(User user, Question question, Long contestId,
-                                              AiChatSendRequest requestBody, SseEmitter emitter) {
-        Map<String, AiToolConfig> configMap = listEnabledToolConfigMap();
-        List<AiToolEventVO> result = new ArrayList<>();
-        for (String toolName : TOOL_ORDER) {
-            AiToolConfig toolConfig = configMap.get(toolName);
-            if (toolConfig == null || !Objects.equals(toolConfig.getEnabled(), 1)) {
-                continue;
-            }
-            if (!shouldRunTool(toolName, requestBody)) {
-                continue;
-            }
-            Integer dailyLimit = toolConfig.getDailyLimit() == null ? 30 : toolConfig.getDailyLimit();
-            if (!checkAndRecordToolCall(user.getId(), toolName, dailyLimit)) {
-                AiToolEventVO eventVO = new AiToolEventVO(toolName, "skipped", "调用次数超限");
-                result.add(eventVO);
-                if (emitter != null) {
-                    sendEvent(emitter, EVENT_TOOL, eventVO);
-                }
-                continue;
-            }
-            try {
-                String summary = executeTool(toolName, user, question, contestId, requestBody);
-                AiToolEventVO eventVO = new AiToolEventVO(toolName, "done", summary);
-                result.add(eventVO);
-                if (emitter != null) {
-                    sendEvent(emitter, EVENT_TOOL, eventVO);
-                }
-            } catch (Exception e) {
-                log.error("tool {} execute error", toolName, e);
-                AiToolEventVO eventVO = new AiToolEventVO(toolName, "error", "工具执行失败: " + e.getMessage());
-                result.add(eventVO);
-                if (emitter != null) {
-                    sendEvent(emitter, EVENT_TOOL, eventVO);
-                }
-            }
-        }
-        return result;
-    }
-
-    private Map<String, AiToolConfig> listEnabledToolConfigMap() {
-        LambdaQueryWrapper<AiToolConfig> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AiToolConfig::getEnabled, 1);
-        List<AiToolConfig> dbList = aiToolConfigMapper.selectList(queryWrapper);
-        Map<String, AiToolConfig> map = new HashMap<>();
-        if (CollUtil.isNotEmpty(dbList)) {
-            for (AiToolConfig config : dbList) {
-                map.put(config.getToolName(), config);
-            }
-            return map;
-        }
-        for (String tool : TOOL_ORDER) {
-            AiToolConfig config = new AiToolConfig();
-            config.setToolName(tool);
-            config.setEnabled(1);
-            config.setDailyLimit(30);
-            map.put(tool, config);
-        }
-        return map;
-    }
-
-    private boolean shouldRunTool(String toolName, AiChatSendRequest requestBody) {
-        String message = StringUtils.defaultString(requestBody.getMessage()).toLowerCase();
-        if ("submission_analysis".equals(toolName) || "knowledge_retrieval".equals(toolName)) {
-            return true;
-        }
-        if ("testcase_generator".equals(toolName)) {
-            return message.contains("测试") || message.contains("边界") || message.contains("用例");
-        }
-        if ("sandbox_execute".equals(toolName)) {
-            return StringUtils.isNotBlank(requestBody.getUserCode())
-                    && (message.contains("运行") || message.contains("输出") || message.contains("run"));
-        }
-        return false;
-    }
-
-    private boolean checkAndRecordToolCall(Long userId, String toolName, Integer dailyLimit) {
-        String today = DateUtil.formatDate(new Date());
-        LambdaQueryWrapper<AiToolCallLog> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AiToolCallLog::getUserId, userId);
-        queryWrapper.eq(AiToolCallLog::getToolName, toolName);
-        queryWrapper.eq(AiToolCallLog::getCallDate, today);
-        queryWrapper.last("limit 1");
-        AiToolCallLog logRow = aiToolCallLogMapper.selectOne(queryWrapper);
-        if (logRow == null) {
-            logRow = new AiToolCallLog();
-            logRow.setUserId(userId);
-            logRow.setToolName(toolName);
-            logRow.setCallDate(today);
-            logRow.setCallCount(1);
-            aiToolCallLogMapper.insert(logRow);
-            return true;
-        }
-        if (logRow.getCallCount() >= dailyLimit) {
-            return false;
-        }
-        logRow.setCallCount(logRow.getCallCount() + 1);
-        aiToolCallLogMapper.updateById(logRow);
-        return true;
-    }
-
-    private String executeTool(String toolName, User user, Question question, Long contestId, AiChatSendRequest requestBody) {
-        if ("submission_analysis".equals(toolName)) {
-            return toolSubmissionAnalysis(user.getId(), question.getId(), contestId);
-        }
-        if ("knowledge_retrieval".equals(toolName)) {
-            return toolKnowledgeRetrieval(question);
-        }
-        if ("testcase_generator".equals(toolName)) {
-            return toolGenerateTestCases(question);
-        }
-        if ("sandbox_execute".equals(toolName)) {
-            return toolSandboxExecute(question, requestBody);
-        }
-        return "未识别工具";
-    }
-
-    private String toolSubmissionAnalysis(Long userId, Long questionId, Long contestId) {
-        LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(QuestionSubmit::getUserId, userId);
-        queryWrapper.eq(QuestionSubmit::getQuestionId, questionId);
-        if (contestId != null && contestId > 0) {
-            queryWrapper.eq(QuestionSubmit::getContestId, contestId);
-        }
-        queryWrapper.orderByDesc(QuestionSubmit::getCreateTime);
-        queryWrapper.last("limit 5");
-        List<QuestionSubmit> submits = questionSubmitService.list(queryWrapper);
-        if (CollUtil.isEmpty(submits)) {
-            return "没有找到相关提交记录";
-        }
-        long acceptedCount = 0;
-        String latestJudgeMsg = "N/A";
-        Long latestTime = null;
-        for (QuestionSubmit submit : submits) {
-            JudgeInfo judgeInfo = parseJudgeInfo(submit.getJudgeInfo());
-            if (judgeInfo == null) {
-                continue;
-            }
-            if ("Accepted".equalsIgnoreCase(judgeInfo.getMessage())) {
-                acceptedCount++;
-            }
-            if ("N/A".equals(latestJudgeMsg)) {
-                latestJudgeMsg = StringUtils.defaultString(judgeInfo.getMessage(), "N/A");
-                latestTime = judgeInfo.getTime();
-            }
-        }
-        return String.format("最近%d次提交中 AC=%d，最近一次结果=%s，耗时=%s。", submits.size(), acceptedCount, latestJudgeMsg, latestTime == null ? "N/A" : latestTime + "ms");
-    }
-
-    private String toolKnowledgeRetrieval(Question question) {
-        List<String> tags = new ArrayList<>();
-        if (StringUtils.isNotBlank(question.getTags())) {
-            try {
-                tags = JSONUtil.toList(question.getTags(), String.class);
-            } catch (Exception ignored) {
-            }
-        }
-        if (CollUtil.isEmpty(tags)) {
-            return "题目标签缺失，建议先明确状态定义、边界条件和复杂度目标。";
-        }
-        List<String> tips = new ArrayList<>();
-        for (String tag : tags) {
-            if (tag == null) {
-                continue;
-            }
-            String lower = tag.toLowerCase();
-            if (lower.contains("dp")) {
-                tips.add("动态规划：建议画出状态转移图，理清状态定义和转移方程。");
-            } else if (lower.contains("greedy") || lower.contains("贪心")) {
-                tips.add("贪心算法：建议先考虑局部最优选择，证明其能推出全局最优。");
-            } else if (lower.contains("graph") || lower.contains("图")) {
-                tips.add("图算法：建议考虑图的遍历顺序，标记访问状态，避免重复计算。");
-            } else if (lower.contains("string") || lower.contains("字符串")) {
-                tips.add("字符串处理：建议注意边界条件，使用双指针或滑动窗口技巧。");
-            } else {
-                tips.add(tag + "：建议查阅相关算法或数据结构，理解其基本原理和应用场景。");
-            }
-        }
-        return "算法提示：\n" + String.join("\n", tips);
-    }
-
-    private String toolGenerateTestCases(Question question) {
-        String title = StringUtils.defaultString(question.getTitle());
-        List<String> cases = new ArrayList<>();
-        cases.add("1) 示例测试用例：输入一组简单数据，验证基本功能。");
-        cases.add("2) 边界测试用例：输入边界值，测试程序边界条件处理。");
-        cases.add("3) 性能测试用例：输入大规模数据，测试程序性能和稳定性。");
-        return "测试用例建议：\n" + String.join("\n", cases);
-    }
-
-    private String toolSandboxExecute(Question question, AiChatSendRequest requestBody) {
-        if (StringUtils.isBlank(requestBody.getUserCode())) {
-            return "未提供代码，无法执行沙箱。";
-        }
-        List<String> inputList = new ArrayList<>();
-        if (StringUtils.isNotBlank(question.getJudgeCase())) {
-            try {
-                List<JudgeCase> judgeCaseList = JSONUtil.toList(question.getJudgeCase(), JudgeCase.class);
-                if (CollUtil.isNotEmpty(judgeCaseList)) {
-                    inputList.add(judgeCaseList.get(0).getInput());
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        if (CollUtil.isEmpty(inputList)) {
-            inputList.add("");
-        }
-        CodeSandbox codeSandbox = CodeSandboxFactory.newInstance(codeSandboxType);
-        ExecuteCodeRequest executeCodeRequest = ExecuteCodeRequest.builder()
-                .language(StringUtils.defaultIfBlank(requestBody.getLanguage(), "java"))
-                .code(requestBody.getUserCode())
-                .input(inputList)
-                .build();
-        ExecuteCodeResponse response = codeSandbox.executeCode(executeCodeRequest);
-        if (response == null) {
-            return "沙箱执行无返回。";
-        }
-        String firstOutput = CollUtil.isNotEmpty(response.getOutput()) ? response.getOutput().get(0) : "N/A";
-        String status = response.getStatus() == null ? "unknown" : String.valueOf(response.getStatus());
-        return "沙箱执行完成，status=" + status + "，样例输出=" + StrUtil.sub(firstOutput, 0, 120);
-    }
-
-    private JudgeInfo parseJudgeInfo(String judgeInfoJson) {
-        if (StringUtils.isBlank(judgeInfoJson)) {
-            return null;
-        }
-        try {
-            return JSONUtil.toBean(judgeInfoJson, JudgeInfo.class);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private String buildModelUserPrompt(Question question, AiChatSendRequest requestBody, List<AiToolEventVO> toolEvents) {
-        StringBuilder promptBuilder = new StringBuilder();
-        promptBuilder.append("【题目标题】").append(StringUtils.defaultString(question.getTitle())).append("\n");
-        promptBuilder.append("【题目内容】").append(StringUtils.defaultString(question.getContent())).append("\n");
-        promptBuilder.append("【编程语言】").append(StringUtils.defaultString(requestBody.getLanguage())).append("\n");
-//        if (StringUtils.isNotBlank(requestBody.getLatestJudgeResult())) {
-//            promptBuilder.append("【最近判题结果】").append(requestBody.getLatestJudgeResult()).append("\n");
-//        }
-//        if (StringUtils.isNotBlank(requestBody.getUserCode())) {
-//            promptBuilder.append("【用户当前代码（仅用于分析，不直接返回完整 AC 代码）】\n")
-//                    .append(StrUtil.sub(requestBody.getUserCode(), 0, 4000)).append("\n");
-//        }
-        if (CollUtil.isNotEmpty(toolEvents)) {
-            promptBuilder.append("【工具结果】\n");
-            for (AiToolEventVO eventVO : toolEvents) {
-                promptBuilder.append("- ").append(eventVO.getToolName())
-                        .append(": ").append(eventVO.getSummary()).append("\n");
-            }
-        }
-        promptBuilder.append("【用户问题】").append(StringUtils.defaultString(requestBody.getMessage()));
-        return promptBuilder.toString();
-    }
-
-    private String generateAssistantContent(String systemPrompt, List<AiChatMessage> history,
-                                            String modelUserPrompt, List<AiToolEventVO> toolEvents) {
-        String content = callSpringAi(systemPrompt, history, modelUserPrompt);
+    /**
+     * 对 Spring AI 调用做一层兜底封装。
+     */
+    private String generateAssistantContent(String systemPrompt, AiChatSession session, User loginUser,
+                                            Question question, Long contestId, AiChatSendRequest requestBody,
+                                            SseEmitter emitter, List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+        String content = callSpringAi(systemPrompt, session, loginUser, question, contestId,
+                requestBody, emitter, toolEvents, modeEnum);
         if (StringUtils.isBlank(content)) {
-            content = buildFallbackAnswer(modelUserPrompt, toolEvents);
+            content = buildFallbackAnswer(requestBody.getMessage(), toolEvents);
         }
         return content;
     }
 
-    private String callSpringAi(String systemPrompt, List<AiChatMessage> history, String modelUserPrompt) {
+    /**
+     * 真正调用 Spring AI 的位置。
+     * 普通模式只挂载聊天记忆，Agent 模式会额外挂载工具回调和运行时上下文。
+     */
+    private String callSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
+                                Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
+                                List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
         try {
-            String historyText = buildHistoryText(history);
-            String userPrompt;
-            if (StringUtils.isBlank(historyText)) {
-                userPrompt = modelUserPrompt;
-            } else {
-                userPrompt = "【历史对话摘要】\n" + historyText + "\n\n【当前请求】\n" + modelUserPrompt;
-            }
-            return chatClientBuilder.build()
+            /**
+             * 1、每次会话，生成一个ChatClient（用户可能每次选择了不同的模型，所以不能使用单例）
+             * 2、会话信息存储到数据库
+             * 3、敏感词过滤 SafeGuardAdvisor （拦截弃用时，保存违规记录到数据库）
+             * 4、封装用户提示词：除了用户输入的信息，还包括题目信息、编程语言
+             * 5、Agent 模式下，注入工具信息
+             */
+            ChatClient.ChatClientRequestSpec requestSpec = chatClientBuilder.build()
                     .prompt()
+                    .advisors(
+                            MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
+                                    .conversationId(String.valueOf(session.getId()))
+                                    .build(),
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                    )
                     .system(systemPrompt)
-                    .user(userPrompt)
-                    .options(DashScopeChatOptions.builder()
-                        .model("qwen-max")
-                        .build())
-                    .call()
-                    .content();
+                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                            .params(buildUserPromptParams(question, requestBody)));
+//                    .options(DashScopeChatOptions.builder()
+//                            .model("qwen-max")
+//                            .build());
+
+            if (AiChatModeEnum.AGENT == modeEnum) {
+                // Agent 模式下把项目里的题目、用户、代码等上下文通过 toolContext 透传给工具层。
+                ToolCallback[] toolCallbacks = agentToolsManager.getEnabledToolCallbacks();
+                if (toolCallbacks.length > 0) {
+                    requestSpec = requestSpec
+                            .toolCallbacks(toolCallbacks)
+                            .toolContext(buildToolContext(loginUser, question, contestId, requestBody, emitter, toolEvents));
+                }
+            }
+
+            return requestSpec.call().content();
         } catch (Exception e) {
             log.error("Spring AI call failed", e);
             return null;
         }
     }
 
-    private String buildHistoryText(List<AiChatMessage> history) {
-        if (CollUtil.isEmpty(history)) {
-            return "";
-        }
-        List<AiChatMessage> safeHistory = history;
-        if (safeHistory.size() > 8) {
-            safeHistory = safeHistory.subList(safeHistory.size() - 8, safeHistory.size());
-        }
-        StringBuilder builder = new StringBuilder();
-        for (AiChatMessage message : safeHistory) {
-            if (StringUtils.isBlank(message.getContent())) {
-                continue;
-            }
-            builder.append(message.getRole()).append(": ")
-                    .append(StrUtil.sub(message.getContent(), 0, 500))
-                    .append("\n");
-        }
-        return builder.toString();
+    /**
+     * 构建SafeGuardAdvisor，执行时保存违规日志
+     */
+    private SafeGuardAdvisor buildSafeGuardAdvisor(User loginUser, AiChatSession session, String userMessage) {
+        List<String> sensitiveWords = listSensitiveWords();
+        return new ViolationLoggingSafeGuardAdvisor(sensitiveWords, loginUser, session, userMessage);
     }
 
     /**
-     * AI 调用失败，降级回答
-     * @param modelUserPrompt
-     * @param toolEvents
-     * @return
+     * 具名 SafeGuardAdvisor，避免匿名类名称为空导致 advisorName 校验失败。
      */
-    private String buildFallbackAnswer(String modelUserPrompt, List<AiToolEventVO> toolEvents) {
+    private class ViolationLoggingSafeGuardAdvisor extends SafeGuardAdvisor {
+
+        private final List<String> sensitiveWords;
+        private final User loginUser;
+        private final AiChatSession session;
+        private final String userMessage;
+
+        private ViolationLoggingSafeGuardAdvisor(List<String> sensitiveWords, User loginUser,
+                                                 AiChatSession session, String userMessage) {
+            super(sensitiveWords, SAFE_GUARD_BLOCKED_RESPONSE, 0);
+            this.sensitiveWords = sensitiveWords;
+            this.loginUser = loginUser;
+            this.session = session;
+            this.userMessage = userMessage;
+        }
+
+        @Override
+        public ChatClientResponse adviseCall(ChatClientRequest advisedRequest, CallAdvisorChain chain) {
+            saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
+            return super.adviseCall(advisedRequest, chain);
+        }
+
+        @Override
+        public Flux<ChatClientResponse> adviseStream(ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
+            saveSensitiveViolationIfNeeded(advisedRequest, sensitiveWords, loginUser, session, userMessage);
+            return super.adviseStream(advisedRequest, chain);
+        }
+    }
+
+    /**
+     * SafeGuardAdvisor 命中敏感词时，同步记录一条违规日志。
+     */
+    private void saveSensitiveViolationIfNeeded(ChatClientRequest advisedRequest, List<String> sensitiveWords,
+                                                User loginUser, AiChatSession session, String userMessage) {
+        if (!matchesSensitiveWord(advisedRequest, sensitiveWords)) {
+            return;
+        }
+        String violationContent = StringUtils.defaultIfBlank(extractPromptContent(advisedRequest), userMessage);
+        saveViolation(loginUser.getId(), session.getId(), null, "input_sensitive", violationContent);
+    }
+
+    /**
+     * 复用 SafeGuardAdvisor 的敏感词匹配逻辑，保证业务回调与拦截条件一致。
+     */
+    private boolean matchesSensitiveWord(ChatClientRequest advisedRequest, List<String> sensitiveWords) {
+        if (advisedRequest == null || CollUtil.isEmpty(sensitiveWords)) {
+            return false;
+        }
+        String promptContent = extractPromptContent(advisedRequest);
+        if (StringUtils.isBlank(promptContent)) {
+            return false;
+        }
+        return sensitiveWords.stream()
+                .filter(StringUtils::isNotBlank)
+                .anyMatch(promptContent::contains);
+    }
+
+    private String extractPromptContent(ChatClientRequest advisedRequest) {
+        if (advisedRequest == null) {
+            return null;
+        }
+        return advisedRequest.prompt().getContents();
+    }
+
+    private Map<String, Object> buildUserPromptParams(Question question, AiChatSendRequest requestBody) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("title", StringUtils.defaultString(question.getTitle()));
+        params.put("content", StringUtils.defaultString(question.getContent()));
+        params.put("language", StringUtils.defaultIfBlank(requestBody.getLanguage(), "unknown"));
+//        params.put("latestJudgeResult", StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"));
+//        params.put("userCode", trimUserCode(requestBody.getUserCode()));
+        params.put("message", StringUtils.defaultString(requestBody.getMessage()));
+        return params;
+    }
+
+    /**
+     * 控制注入到模型的用户代码长度，避免上下文过大。
+     */
+    private String trimUserCode(String userCode) {
+        if (StringUtils.isBlank(userCode)) {
+            return "N/A";
+        }
+        return StrUtil.sub(userCode, 0, 4000);
+    }
+
+    /**
+     * 构建工具运行时上下文。
+     * Spring AI 只负责调度工具，具体业务对象仍由项目自己传入。
+     */
+    private Map<String, Object> buildToolContext(User loginUser, Question question, Long contestId,
+                                                 AiChatSendRequest requestBody, SseEmitter emitter,
+                                                 List<AiToolEventVO> toolEvents) {
+        Map<String, Object> toolContext = new LinkedHashMap<>();
+        toolContext.put(AgentToolsManager.TOOL_RUNTIME_CONTEXT_KEY,
+                new AgentToolsManager.RuntimeContext(loginUser.getId(), question, contestId, requestBody, emitter, toolEvents));
+        return toolContext;
+    }
+
+    /**
+     * AI 调用失败时的降级回复。
+     */
+    private String buildFallbackAnswer(String userMessage, List<AiToolEventVO> toolEvents) {
         StringBuilder sb = new StringBuilder();
-        sb.append("分析建议：从题目给出的时间/空间限制条件去寻找可能的解法，一般题目通过的条件是时间和空间级别不超过1e8。");
+        sb.append(AI_CALL_FAILED_RESPONSE);
+        log.info("AI 调用失败，降级回复：{}", sb);
         return sb.toString();
     }
 
-//    private String enforceCompliance(String output, String userMessage) {
-//        if (StringUtils.isBlank(output)) {
-//            return aiProperties.getRefuseMessage();
-//        }
-//        String lowerCaseMessage = userMessage == null ? "" : userMessage.toLowerCase();
-//        boolean directCodeAsk = lowerCaseMessage.contains("完整代码")
-//                || lowerCaseMessage.contains("直接给代码")
-//                || lowerCaseMessage.contains("ac代码")
-//                || lowerCaseMessage.contains("full code");
-//        if (directCodeAsk) {
-//            return aiProperties.getRefuseMessage() + "\n\n你可以把你现有代码发我，我来按行帮你定位问题。";
-//        }
-//        if (looksLikeFullSolutionCode(output)) {
-//            return aiProperties.getRefuseMessage() + "\n\n我可以继续帮你拆成伪代码步骤，或只给关键函数思路。";
-//        }
-//        return output;
-//    }
-
-    private boolean looksLikeFullSolutionCode(String text) {
-        if (StringUtils.isBlank(text)) {
-            return false;
-        }
-        int lineCount = text.split("\n").length;
-        if (lineCount < 20) {
-            return false;
-        }
-        boolean hasCodeBlock = text.contains("```");
-        boolean hasMainPattern = MAIN_CODE_PATTERN.matcher(text).find();
-        return hasCodeBlock && hasMainPattern;
-    }
-
+    /**
+     * 记录风控违规日志，便于后续审计和排查。
+     */
     private void saveViolation(Long userId, Long sessionId, Long messageId, String ruleType, String content) {
         AiViolationLog violationLog = new AiViolationLog();
         violationLog.setUserId(userId);
@@ -930,6 +746,9 @@ public class AiChatServiceImpl implements AiChatService {
         aiViolationLogMapper.insert(violationLog);
     }
 
+    /**
+     * 统一发送 SSE 事件。
+     */
     private void sendEvent(SseEmitter emitter, String eventName, Object data) {
         if (emitter == null) {
             return;
@@ -941,6 +760,9 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 
+    /**
+     * 构建返回给前端的元信息事件。
+     */
     private Map<String, Object> buildMetaPayload(AiChatSession session, AiChatMessage message) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("sessionId", session.getId());
@@ -949,6 +771,17 @@ public class AiChatServiceImpl implements AiChatService {
         return map;
     }
 
+    private Map<String, Object> buildDonePayload(AiChatMessage message, String content) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("messageId", message.getId());
+        map.put("mode", message.getMode());
+        map.put("content", StringUtils.defaultString(content));
+        return map;
+    }
+
+    /**
+     * 将完整回复按固定块大小拆分成 delta 事件，模拟流式输出体验。
+     */
     private void streamText(SseEmitter emitter, String content) {
         if (StringUtils.isBlank(content)) {
             return;
@@ -967,4 +800,3 @@ public class AiChatServiceImpl implements AiChatService {
         }
     }
 }
-

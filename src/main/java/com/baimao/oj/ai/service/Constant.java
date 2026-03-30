@@ -13,7 +13,7 @@ public interface Constant {
     String EVENT_DONE = "done";
     String EVENT_ERROR = "error";
     List<String> TOOL_ORDER = Arrays.asList(
-            "submission_analysis", "knowledge_retrieval", "testcase_generator", "sandbox_execute"
+            "submission_analysis", "knowledge_retrieval", "testcase_generator"
     );
     Pattern MAIN_CODE_PATTERN = Pattern.compile(
             "(public\\s+class\\s+\\w+)|(public\\s+static\\s+void\\s+main\\s*\\()|(def\\s+\\w+\\s*\\()|(#include\\s*<)",

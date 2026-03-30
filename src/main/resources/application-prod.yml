@@ -16,10 +16,11 @@ spring:
     password: sztu@2078
   ai:
     dashscope:
-      api-key: sk-89fd0b23909d43809e5ffc3df4ca3445
+      api-key: ${DASHSCOPE_API_KEY:sk-89fd0b23909d43809e5ffc3df4ca3445}
       chat:
         options:
-          model: qwen-max
+          model: ${DASHSCOPE_MODEL:qwen-max}
+          temperature: 0.2
   servlet:
     multipart:
       max-file-size: 10MB
