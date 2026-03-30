@@ -28,7 +28,7 @@ public class AiProperties {
     private Long requestTimeoutMs = 30000L;
 
     /**
-     * 注入提示词的最大历史消息条数。
+     * 注入 Prompt 的最大历史消息条数。
      */
     private Integer maxHistoryMessages = 20;
 

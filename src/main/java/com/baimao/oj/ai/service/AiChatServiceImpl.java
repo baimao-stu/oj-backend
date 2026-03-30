@@ -5,6 +5,7 @@ import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.baimao.oj.ai.config.AiProperties;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import com.baimao.oj.ai.model.dto.AiChatSessionRequest;
@@ -250,7 +251,7 @@ public class AiChatServiceImpl implements AiChatService {
 
         AiChatMessage userDbMessage = new AiChatMessage();
         userDbMessage.setSessionId(session.getId());
-        userDbMessage.setRole(loginUser.getUserRole());
+        userDbMessage.setRole(ROLE_USER);
         userDbMessage.setMode(AiChatModeEnum.fromValue(requestBody.getMode()).getValue());
         userDbMessage.setContent(userMessage);
         userDbMessage.setViolation(0);
@@ -845,6 +846,9 @@ public class AiChatServiceImpl implements AiChatService {
                     .prompt()
                     .system(systemPrompt)
                     .user(userPrompt)
+                    .options(DashScopeChatOptions.builder()
+                        .model("qwen-max")
+                        .build())
                     .call()
                     .content();
         } catch (Exception e) {

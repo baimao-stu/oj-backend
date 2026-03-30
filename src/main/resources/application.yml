@@ -13,7 +13,7 @@ spring:
     password: 136828www
   ai:
     dashscope:
-      api-key: 89fd0b23909d43809e5ffc3df4ca3445
+      api-key: sk-89fd0b23909d43809e5ffc3df4ca3445
       chat:
         options:
           model: qwen-max
