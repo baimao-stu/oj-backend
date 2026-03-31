@@ -158,7 +158,7 @@ public class AgentToolsManager {
     /**
      * 生成基础、边界和压力场景的测试“建议”。
      */
-    public static String toolGenerateTestCases(Question question) {
+    public String toolGenerateTestCases(Question question) {
         if (question == null) {
             return "测试用例建议：\n1. 基础正确性样例。\n2. 最小/最大边界样例。\n3. 大规模压力样例。";
         }
