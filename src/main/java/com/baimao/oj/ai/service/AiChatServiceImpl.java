@@ -310,7 +310,6 @@ public class AiChatServiceImpl implements AiChatService {
 
         if (emitter != null) {
             sendEvent(emitter, EVENT_META, buildMetaPayload(session, assistantMessage));
-            streamText(emitter, assistantContent);
             sendEvent(emitter, EVENT_DONE, buildDonePayload(assistantMessage, assistantContent));
         }
 
@@ -559,10 +558,19 @@ public class AiChatServiceImpl implements AiChatService {
     private String generateAssistantContent(String systemPrompt, AiChatSession session, User loginUser,
                                             Question question, Long contestId, AiChatSendRequest requestBody,
                                             SseEmitter emitter, List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
-        String content = callSpringAi(systemPrompt, session, loginUser, question, contestId,
-                requestBody, emitter, toolEvents, modeEnum);
+        String content;
+        if (emitter != null) {
+            content = streamSpringAi(systemPrompt, session, loginUser, question, contestId,
+                    requestBody, emitter, toolEvents, modeEnum);
+        } else {
+            content = callSpringAi(systemPrompt, session, loginUser, question, contestId,
+                    requestBody, emitter, toolEvents, modeEnum);
+        }
         if (StringUtils.isBlank(content)) {
             content = buildFallbackAnswer(requestBody.getMessage(), toolEvents);
+            if (emitter != null) {
+                sendEvent(emitter, EVENT_DELTA, content);
+            }
         }
         return content;
     }
@@ -617,6 +625,49 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 构建SafeGuardAdvisor，执行时保存违规日志
      */
+    private String streamSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
+                                  Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
+                                  List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+        StringBuilder contentBuilder = new StringBuilder();
+        try {
+            ChatClient.ChatClientRequestSpec requestSpec = chatClientBuilder.build()
+                    .prompt()
+                    .advisors(
+                            MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
+                                    .conversationId(String.valueOf(session.getId()))
+                                    .build(),
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                    )
+                    .system(systemPrompt)
+                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                            .params(buildUserPromptParams(question, requestBody)));
+
+            if (AiChatModeEnum.AGENT == modeEnum) {
+                ToolCallback[] toolCallbacks = agentToolsManager.getEnabledToolCallbacks();
+                if (toolCallbacks.length > 0) {
+                    requestSpec = requestSpec
+                            .toolCallbacks(toolCallbacks)
+                            .toolContext(buildToolContext(loginUser, question, contestId, requestBody, emitter, toolEvents));
+                }
+            }
+
+            requestSpec.stream()
+                    .content()
+                    .doOnNext(chunk -> {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        contentBuilder.append(chunk);
+                        sendEvent(emitter, EVENT_DELTA, chunk);
+                    })
+                    .blockLast();
+            return contentBuilder.toString();
+        } catch (Exception e) {
+            log.error("Spring AI stream failed", e);
+            return contentBuilder.length() > 0 ? contentBuilder.toString() : null;
+        }
+    }
+
     private SafeGuardAdvisor buildSafeGuardAdvisor(User loginUser, AiChatSession session, String userMessage) {
         List<String> sensitiveWords = listSensitiveWords();
         return new ViolationLoggingSafeGuardAdvisor(sensitiveWords, loginUser, session, userMessage);
@@ -779,24 +830,4 @@ public class AiChatServiceImpl implements AiChatService {
         return map;
     }
 
-    /**
-     * 将完整回复按固定块大小拆分成 delta 事件，模拟流式输出体验。
-     */
-    private void streamText(SseEmitter emitter, String content) {
-        if (StringUtils.isBlank(content)) {
-            return;
-        }
-        int chunkSize = 16;
-        for (int i = 0; i < content.length(); i += chunkSize) {
-            int end = Math.min(i + chunkSize, content.length());
-            String chunk = content.substring(i, end);
-            sendEvent(emitter, EVENT_DELTA, chunk);
-            try {
-                Thread.sleep(20);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-    }
 }
