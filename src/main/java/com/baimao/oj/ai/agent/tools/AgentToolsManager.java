@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.tools;
+package com.baimao.oj.ai.agent.tools;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
@@ -60,8 +60,8 @@ public class AgentToolsManager {
                     "Analyze the user's recent submissions for the current question and summarize pass rate, latest judge result, and execution metrics.",
                     "{\"limit\": optional integer, default 10}"
             ),
-            "knowledge_retrieval", new AgentToolDefinition(
-                    "knowledge_retrieval",
+            "searchWeb", new AgentToolDefinition(
+                    "searchWeb",
                     "Search public knowledge related to the current programming problem, algorithm, or failure pattern.",
                     "{\"query\": required string}"
             ),
@@ -111,6 +111,11 @@ public class AgentToolsManager {
         return definitions;
     }
 
+    /**
+     * 当前要调用的工具是否支持
+     * @param toolName
+     * @return
+     */
     public boolean supportsTool(String toolName) {
         String normalizedToolName = normalizeToolName(toolName);
         return listEnabledTools().stream()
@@ -128,7 +133,7 @@ public class AgentToolsManager {
                 return executeTool(normalizedToolName, runtimeContext,
                         context -> toolSubmissionAnalysis(context.userId(), context.question().getId(),
                                 context.contestId(), limit));
-            case "knowledge_retrieval":
+            case "searchWeb":
                 if (StringUtils.isBlank(searchApiKey)) {
                     return recordEvent(runtimeContext, normalizedToolName, "skipped",
                             "Search API key is not configured.");
@@ -225,7 +230,7 @@ public class AgentToolsManager {
                 latestTime = judgeInfo.getTime();
             }
         }
-        return String.format("最近 %d 次提交: [通过 %d 次, 最近一次提交的结果: %s, 执行时间: %s ms]。",
+        return String.format("共 %d 次提交: [通过 %d 次, 最近一次提交的结果: %s, 执行时间: %s ms]。",
                 submits.size(), acceptedCount, latestJudgeMsg, latestTime == null ? "N/A" : latestTime);
     }
 
@@ -346,11 +351,6 @@ public class AgentToolsManager {
     private String normalizeToolName(String toolName) {
         if (StringUtils.isBlank(toolName)) {
             return null;
-        }
-        if ("search_web".equalsIgnoreCase(toolName)
-                || "searchweb".equalsIgnoreCase(toolName)
-                || "web_search".equalsIgnoreCase(toolName)) {
-            return "knowledge_retrieval";
         }
         return toolName.trim();
     }

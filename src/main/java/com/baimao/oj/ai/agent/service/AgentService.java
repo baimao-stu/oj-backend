@@ -1,12 +1,12 @@
 package com.baimao.oj.ai.agent.service;
 
-import com.baimao.oj.ai.agent.core.ReActAgent;
+import com.baimao.oj.ai.agent.core.ACoderAgent;
 import com.baimao.oj.ai.agent.llm.AgentLlmCaller;
 import com.baimao.oj.ai.agent.model.AgentResult;
 import com.baimao.oj.ai.agent.model.AgentRunContext;
+import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.config.AiProperties;
 import com.baimao.oj.ai.service.AiDatabaseChatMemory;
-import com.baimao.oj.ai.tools.AgentToolsManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -17,11 +17,11 @@ import org.springframework.stereotype.Service;
 import java.util.function.Consumer;
 
 /**
- * Agent 运行入口服务。
+ * Agent execution entry service.
  */
 @Service
 @Slf4j
-public class AutonomousAgentService {
+public class AgentService {
 
     @Resource
     private ChatClient.Builder chatClientBuilder;
@@ -38,9 +38,6 @@ public class AutonomousAgentService {
     @Resource
     private AiProperties aiProperties;
 
-    /**
-     * 执行一次完整的自主 Agent 流程。
-     */
     public AgentResult run(AgentRunContext runContext) {
         AgentLlmCaller llmCaller = new AgentLlmCaller() {
             @Override
@@ -54,7 +51,7 @@ public class AutonomousAgentService {
                 return streamModel(context, systemPrompt, userPrompt, chunkConsumer);
             }
         };
-        ReActAgent agent = new ReActAgent(
+        ACoderAgent agent = new ACoderAgent(
                 aiProperties.getAgentMaxSteps(),
                 aiProperties.getAgentMaxDecisionRetries(),
                 aiProperties.getAgentMaxObservationChars(),
@@ -65,9 +62,6 @@ public class AutonomousAgentService {
         return agent.run(runContext);
     }
 
-    /**
-     * 普通同步模型调用，适合规划阶段。
-     */
     private String callModel(AgentRunContext runContext, String systemPrompt, String userPrompt) {
         try {
             var requestSpec = chatClientBuilder.build()
@@ -91,9 +85,6 @@ public class AutonomousAgentService {
         }
     }
 
-    /**
-     * 流式模型调用，适合最终答案边生成边推送。
-     */
     private String streamModel(AgentRunContext runContext, String systemPrompt, String userPrompt,
                                Consumer<String> chunkConsumer) {
         StringBuilder contentBuilder = new StringBuilder();
@@ -117,7 +108,6 @@ public class AutonomousAgentService {
                         if (chunk == null || chunk.isEmpty()) {
                             return;
                         }
-                        // 一边累计完整内容，一边把增量片段实时透传给调用方。
                         contentBuilder.append(chunk);
                         if (chunkConsumer != null) {
                             chunkConsumer.accept(chunk);

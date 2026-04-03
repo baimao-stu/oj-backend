@@ -5,29 +5,19 @@ import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.ai.agent.model.AgentRunContext;
-import com.baimao.oj.ai.agent.service.AutonomousAgentService;
+import com.baimao.oj.ai.agent.service.AgentService;
+import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.config.AiProperties;
-import com.baimao.oj.ai.mapper.AiChatMessageMapper;
-import com.baimao.oj.ai.mapper.AiChatSessionMapper;
-import com.baimao.oj.ai.mapper.AiDisableRuleMapper;
-import com.baimao.oj.ai.mapper.AiPromptConfigMapper;
-import com.baimao.oj.ai.mapper.AiSensitiveWordMapper;
-import com.baimao.oj.ai.mapper.AiViolationLogMapper;
+import com.baimao.oj.ai.mapper.*;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import com.baimao.oj.ai.model.dto.AiChatSessionRequest;
-import com.baimao.oj.ai.model.entity.AiChatMessage;
-import com.baimao.oj.ai.model.entity.AiChatSession;
-import com.baimao.oj.ai.model.entity.AiDisableRule;
-import com.baimao.oj.ai.model.entity.AiPromptConfig;
-import com.baimao.oj.ai.model.entity.AiSensitiveWord;
-import com.baimao.oj.ai.model.entity.AiViolationLog;
+import com.baimao.oj.ai.model.entity.*;
 import com.baimao.oj.ai.model.enums.AiChatModeEnum;
 import com.baimao.oj.ai.model.enums.AiRuleScopeEnum;
 import com.baimao.oj.ai.model.enums.AiSessionStatusEnum;
 import com.baimao.oj.ai.model.vo.AiChatMessageVO;
 import com.baimao.oj.ai.model.vo.AiChatSessionVO;
 import com.baimao.oj.ai.model.vo.AiToolEventVO;
-import com.baimao.oj.ai.tools.AgentToolsManager;
 import com.baimao.oj.common.ErrorCode;
 import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.model.entity.Contest;
@@ -48,31 +38,20 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SafeGuardAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-import static com.baimao.oj.ai.service.Constant.DEFAULT_AGENT_SYSTEM_PROMPT;
-import static com.baimao.oj.ai.service.Constant.DEFAULT_NORMAL_SYSTEM_PROMPT;
-import static com.baimao.oj.ai.service.Constant.EVENT_DELTA;
-import static com.baimao.oj.ai.service.Constant.EVENT_DONE;
-import static com.baimao.oj.ai.service.Constant.EVENT_ERROR;
-import static com.baimao.oj.ai.service.Constant.EVENT_META;
-import static com.baimao.oj.ai.service.Constant.ROLE_ASSISTANT;
-import static com.baimao.oj.ai.service.Constant.ROLE_USER;
+import static com.baimao.oj.ai.prompt.PromptConstant.DEFAULT_AGENT_SYSTEM_PROMPT;
+import static com.baimao.oj.ai.prompt.PromptConstant.DEFAULT_NORMAL_SYSTEM_PROMPT;
+import static com.baimao.oj.ai.service.Constant.*;
 
 @Service
 @Slf4j
@@ -157,10 +136,7 @@ public class AiChatServiceImpl implements AiChatService {
     private AiDatabaseChatMemory aiDatabaseChatMemory;
 
     @Resource
-    private AgentToolsManager agentToolsManager;
-
-    @Resource
-    private AutonomousAgentService autonomousAgentService;
+    private AgentService agentService;
 
     /**
      * SSE 流式响应使用独立线程池异步执行，避免阻塞请求线程。
@@ -596,7 +572,7 @@ public class AiChatServiceImpl implements AiChatService {
                                             SseEmitter emitter, List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
         String content;
         if (AiChatModeEnum.AGENT == modeEnum) {
-            content = autonomousAgentService.run(AgentRunContext.builder()
+            content = agentService.run(AgentRunContext.builder()
                     .sessionId(session.getId())
                     .loginUser(loginUser)
                     .question(question)

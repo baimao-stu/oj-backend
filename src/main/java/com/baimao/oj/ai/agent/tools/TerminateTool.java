@@ -1,4 +1,4 @@
-package com.baimao.oj.ai.tools;
+package com.baimao.oj.ai.agent.tools;
 
 
 import org.springframework.ai.tool.annotation.Tool;
