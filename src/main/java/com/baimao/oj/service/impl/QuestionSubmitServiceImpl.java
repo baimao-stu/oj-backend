@@ -179,17 +179,17 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * @return
      */
     @Override
-    public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User submitUser) {
+    public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User loginUser) {
         QuestionSubmitVO questionSubmitVO = QuestionSubmitVO.objToVo(questionSubmit);
         /**脱敏：仅本人和管理员可以看见自己（提交的userId和登陆用户的Id相同）提交的代码（答案）*/
-        long userId = submitUser.getId();
-        if(userId != questionSubmit.getUserId() && !userService.isAdmin(submitUser)){
+        long loginUserId = loginUser.getId();
+        if(loginUserId != questionSubmit.getUserId() && !userService.isAdmin(loginUser)){
             questionSubmitVO.setCode(null);
         }
         Long questionId = questionSubmit.getQuestionId();
         QuestionVO questionVO = questionService.getQuestionVO(questionService.getById(questionId), null);
         questionSubmitVO.setQuestionVO(questionVO);
-        UserVO userVO = userService.getUserVO(userService.getById(userId));
+        UserVO userVO = userService.getUserVO(userService.getById(questionSubmit.getUserId()));
         questionSubmitVO.setUserVO(userVO);
         String errorCaseStr = questionSubmit.getErrorCase();
         if(StrUtil.isNotBlank(errorCaseStr)) {
@@ -205,7 +205,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * @return
      */
     @Override
-    public Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage) {
+    public Page<QuestionSubmitVO> getQuestionSubmitVOPage(Page<QuestionSubmit> questionSubmitPage, User loginUser) {
         List<QuestionSubmit> questionSubmitList = questionSubmitPage.getRecords();
         Page<QuestionSubmitVO> questionSubmitVOPage = new Page<>(questionSubmitPage.getCurrent(), questionSubmitPage.getSize(), questionSubmitPage.getTotal());
 
@@ -213,11 +213,10 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
             return questionSubmitVOPage;
         }
         // 1. 获取所有问题提交的用户信息
-        Set<Long> userIdSet = questionSubmitList.stream().map(QuestionSubmit::getUserId).collect(Collectors.toSet());
-        Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream().collect(Collectors.groupingBy(User::getId));
+        
         // 2. 填充信息，QuestionSubmit转换为QuestionSubmitVO
         List<QuestionSubmitVO> questionSubmitVOList = questionSubmitList.stream().map(
-                questionSubmit -> getQuestionSubmitVO(questionSubmit, userIdUserListMap.get(questionSubmit.getUserId()).get(0))).collect(Collectors.toList());
+                questionSubmit -> getQuestionSubmitVO(questionSubmit, loginUser)).collect(Collectors.toList());
         questionSubmitVOPage.setRecords(questionSubmitVOList);
 
         return questionSubmitVOPage;

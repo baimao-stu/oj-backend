@@ -11,6 +11,7 @@ import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.service.QuestionSubmitService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -22,10 +23,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.baimao.oj.model.enums.JudgeInfoMessageEnum.ACCEPTED;
+import static com.baomidou.mybatisplus.extension.ddl.DdlScriptErrorHandler.PrintlnLogErrorHandler.log;
 
 /**
  * 网页搜索工具
  */
+@Slf4j
 public class AgentTools {
 
     private final String SEARCH_API_APIKEY;
@@ -56,6 +59,7 @@ public class AgentTools {
             }).collect(Collectors.joining(","));
             return result;
         } catch (Exception e) {
+            log.info("Error searching Baidu: " + e.getMessage());
             return "Error searching Baidu: " + e.getMessage();
         }
     }

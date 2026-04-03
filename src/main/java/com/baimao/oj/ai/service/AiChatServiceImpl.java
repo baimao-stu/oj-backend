@@ -4,6 +4,8 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baimao.oj.ai.agent.model.AgentRunContext;
+import com.baimao.oj.ai.agent.service.AutonomousAgentService;
 import com.baimao.oj.ai.config.AiProperties;
 import com.baimao.oj.ai.mapper.AiChatMessageMapper;
 import com.baimao.oj.ai.mapper.AiChatSessionMapper;
@@ -83,6 +85,10 @@ public class AiChatServiceImpl implements AiChatService {
 
     private static final String SAFE_GUARD_BLOCKED_RESPONSE = "由于内容敏感，我无法回复。我们能否换个说法或者讨论其他话题？";
     private static final String AI_CALL_FAILED_RESPONSE = "抱歉，我暂时无法回答你的问题。";
+    private static final String ANALYSIS_OPEN = "<analysis>";
+    private static final String ANALYSIS_CLOSE = "</analysis>";
+    private static final String FINAL_OPEN = "<final>";
+    private static final String FINAL_CLOSE = "</final>";
 
     /**
      * 统一的用户提示词模板。
@@ -99,9 +105,20 @@ public class AiChatServiceImpl implements AiChatService {
             Programming Language:
             {language}
 
+            Latest Judge Result:
+            {latestJudgeResult}
+
+            Current User Code:
+            ```{language}
+            {userCode}
+            ```
+
             User Request:
             {message}
             """;
+
+    private record ParsedAssistantPayload(String finalContent, String reasoningSummary, boolean hasStructuredPayload) {
+    }
 
     @Resource
     private UserService userService;
@@ -141,6 +158,9 @@ public class AiChatServiceImpl implements AiChatService {
 
     @Resource
     private AgentToolsManager agentToolsManager;
+
+    @Resource
+    private AutonomousAgentService autonomousAgentService;
 
     /**
      * SSE 流式响应使用独立线程池异步执行，避免阻塞请求线程。
@@ -289,9 +309,11 @@ public class AiChatServiceImpl implements AiChatService {
         // 先调用模型，生成成功后再落库当前轮用户消息，避免 memory advisor 重复注入本轮输入。
         String systemPrompt = getSystemPrompt(modeEnum);
         List<AiToolEventVO> toolEvents = new ArrayList<>();
+        long reasoningStartedAt = System.currentTimeMillis();
 
         String assistantContent = generateAssistantContent(systemPrompt, session, loginUser, question,
                 contestId, requestBody, emitter, toolEvents, modeEnum);
+        long reasoningDurationMs = System.currentTimeMillis() - reasoningStartedAt;
         // AI 调用失败
 //        if(AI_CALL_FAILED_RESPONSE.equals(assistantContent)) {
 //            saveViolation(loginUser.getId(), session.getId(), null, "call AI failed", userMessage);
@@ -310,10 +332,10 @@ public class AiChatServiceImpl implements AiChatService {
 
         if (emitter != null) {
             sendEvent(emitter, EVENT_META, buildMetaPayload(session, assistantMessage));
-            sendEvent(emitter, EVENT_DONE, buildDonePayload(assistantMessage, assistantContent));
+            sendEvent(emitter, EVENT_DONE, buildDonePayload(assistantMessage, reasoningDurationMs));
         }
 
-        return toMessageVO(assistantMessage);
+        return toMessageVO(assistantMessage, reasoningDurationMs);
     }
 
     /**
@@ -445,8 +467,22 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     private AiChatMessageVO toMessageVO(AiChatMessage message) {
+        return toMessageVO(message, null);
+    }
+
+    private AiChatMessageVO toMessageVO(AiChatMessage message, Long reasoningDurationMs) {
         AiChatMessageVO vo = new AiChatMessageVO();
         BeanUtils.copyProperties(message, vo);
+        vo.setRawContent(message.getContent());
+        if (ROLE_ASSISTANT.equalsIgnoreCase(message.getRole())) {
+            ParsedAssistantPayload parsed = parseAssistantPayload(message.getContent());
+            vo.setFinalContent(parsed.hasStructuredPayload() ? parsed.finalContent() : message.getContent());
+            vo.setReasoningSummary(parsed.reasoningSummary());
+        } else {
+            vo.setFinalContent(message.getContent());
+            vo.setReasoningSummary("");
+        }
+        vo.setReasoningDurationMs(reasoningDurationMs);
         return vo;
     }
 
@@ -559,7 +595,19 @@ public class AiChatServiceImpl implements AiChatService {
                                             Question question, Long contestId, AiChatSendRequest requestBody,
                                             SseEmitter emitter, List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
         String content;
-        if (emitter != null) {
+        if (AiChatModeEnum.AGENT == modeEnum) {
+            content = autonomousAgentService.run(AgentRunContext.builder()
+                    .sessionId(session.getId())
+                    .loginUser(loginUser)
+                    .question(question)
+                    .contestId(contestId)
+                    .requestBody(requestBody)
+                    .baseSystemPrompt(systemPrompt)
+                    .safeGuardAdvisor(buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage()))
+                    .emitter(emitter)
+                    .toolEvents(toolEvents)
+                    .build()).assistantContent();
+        } else if (emitter != null) {
             content = streamSpringAi(systemPrompt, session, loginUser, question, contestId,
                     requestBody, emitter, toolEvents, modeEnum);
         } else {
@@ -607,12 +655,6 @@ public class AiChatServiceImpl implements AiChatService {
 
             if (AiChatModeEnum.AGENT == modeEnum) {
                 // Agent 模式下把项目里的题目、用户、代码等上下文通过 toolContext 透传给工具层。
-                ToolCallback[] toolCallbacks = agentToolsManager.getEnabledToolCallbacks();
-                if (toolCallbacks.length > 0) {
-                    requestSpec = requestSpec
-                            .toolCallbacks(toolCallbacks)
-                            .toolContext(buildToolContext(loginUser, question, contestId, requestBody, emitter, toolEvents));
-                }
             }
 
             return requestSpec.call().content();
@@ -643,12 +685,6 @@ public class AiChatServiceImpl implements AiChatService {
                             .params(buildUserPromptParams(question, requestBody)));
 
             if (AiChatModeEnum.AGENT == modeEnum) {
-                ToolCallback[] toolCallbacks = agentToolsManager.getEnabledToolCallbacks();
-                if (toolCallbacks.length > 0) {
-                    requestSpec = requestSpec
-                            .toolCallbacks(toolCallbacks)
-                            .toolContext(buildToolContext(loginUser, question, contestId, requestBody, emitter, toolEvents));
-                }
             }
 
             requestSpec.stream()
@@ -745,8 +781,8 @@ public class AiChatServiceImpl implements AiChatService {
         params.put("title", StringUtils.defaultString(question.getTitle()));
         params.put("content", StringUtils.defaultString(question.getContent()));
         params.put("language", StringUtils.defaultIfBlank(requestBody.getLanguage(), "unknown"));
-//        params.put("latestJudgeResult", StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"));
-//        params.put("userCode", trimUserCode(requestBody.getUserCode()));
+        params.put("latestJudgeResult", StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"));
+        params.put("userCode", trimUserCode(requestBody.getUserCode()));
         params.put("message", StringUtils.defaultString(requestBody.getMessage()));
         return params;
     }
@@ -822,12 +858,52 @@ public class AiChatServiceImpl implements AiChatService {
         return map;
     }
 
-    private Map<String, Object> buildDonePayload(AiChatMessage message, String content) {
+    private Map<String, Object> buildDonePayload(AiChatMessage message, long reasoningDurationMs) {
+        AiChatMessageVO messageVO = toMessageVO(message, reasoningDurationMs);
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("messageId", message.getId());
-        map.put("mode", message.getMode());
-        map.put("content", StringUtils.defaultString(content));
+        map.put("messageId", messageVO.getId());
+        map.put("mode", messageVO.getMode());
+        map.put("content", StringUtils.defaultString(messageVO.getContent()));
+        map.put("rawContent", StringUtils.defaultString(messageVO.getRawContent()));
+        map.put("finalContent", StringUtils.defaultString(messageVO.getFinalContent()));
+        map.put("reasoningSummary", StringUtils.defaultString(messageVO.getReasoningSummary()));
+        map.put("reasoningDurationMs", messageVO.getReasoningDurationMs());
+        map.put("toolCalls", StringUtils.defaultString(messageVO.getToolCalls()));
         return map;
+    }
+
+    /**
+     * 解析出AI回复内容中<analysis>和<final>标签包裹的部分，分别作为推理分析和最终回复返回给前端。
+     * @param raw
+     * @return
+     */
+    private ParsedAssistantPayload parseAssistantPayload(String raw) {
+        String normalized = StringUtils.defaultString(raw);
+        String lower = normalized.toLowerCase();
+        int analysisOpenIndex = lower.indexOf(ANALYSIS_OPEN);
+        int analysisCloseIndex = lower.indexOf(ANALYSIS_CLOSE);
+        int finalOpenIndex = lower.indexOf(FINAL_OPEN);
+        int finalCloseIndex = lower.indexOf(FINAL_CLOSE);
+        boolean hasStructuredPayload = analysisOpenIndex >= 0 || finalOpenIndex >= 0;
+
+        String reasoningSummary = analysisOpenIndex >= 0
+                ? normalized.substring(
+                        analysisOpenIndex + ANALYSIS_OPEN.length(),
+                        analysisCloseIndex >= 0 ? analysisCloseIndex : normalized.length())
+                .trim()
+                : "";
+
+        String finalContent = "";
+        if (finalOpenIndex >= 0) {
+            finalContent = normalized.substring(
+                    finalOpenIndex + FINAL_OPEN.length(),
+                    finalCloseIndex >= 0 ? finalCloseIndex : normalized.length())
+                    .trim();
+        } else if (!hasStructuredPayload) {
+            finalContent = normalized;
+        }
+
+        return new ParsedAssistantPayload(finalContent, reasoningSummary, hasStructuredPayload);
     }
 
 }

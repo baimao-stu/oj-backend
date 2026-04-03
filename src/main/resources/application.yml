@@ -78,6 +78,10 @@ ai:
   security-secret-key: oj-ai-secret-key
   # 11. 定时任务表达式：每 30 分钟执行一次
   archive-cron: "0 0/30 * * * ?"
+  # agent 配置
+  agent-max-steps: 6
+  agent-max-decision-retries: 2
+  agent-max-observation-chars: 1200
 
 search-api:
   api-key: dRbW1znC4E3NTd2aDN3PKp4o

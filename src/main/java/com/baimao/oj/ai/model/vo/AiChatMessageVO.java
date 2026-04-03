@@ -27,6 +27,22 @@ public class AiChatMessageVO implements Serializable {
      */
     private String content;
     /**
+     * 助手原始消息内容，可能包含结构化分析标签。
+     */
+    private String rawContent;
+    /**
+     * 结构化解析后的最终回复内容。
+     */
+    private String finalContent;
+    /**
+     * 结构化解析后的思考摘要。
+     */
+    private String reasoningSummary;
+    /**
+     * 当前轮回复耗时，单位毫秒。
+     */
+    private Long reasoningDurationMs;
+    /**
      * 智能体模式下工具调用轨迹 JSON 字符串。
      */
     private String toolCalls;

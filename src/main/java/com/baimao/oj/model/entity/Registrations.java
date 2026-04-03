@@ -42,6 +42,7 @@ public class Registrations implements Serializable {
     /**
      * 比赛排名
      */
+    @TableField(value = "`rank`")
     private Integer rank;
 
     /**
