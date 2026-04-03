@@ -51,6 +51,27 @@ public class AgentToolsManager {
      */
     public static final String TOOL_RUNTIME_CONTEXT_KEY = "aiToolRuntimeContext";
 
+    public record AgentToolDefinition(String name, String description, String inputSchema) {
+    }
+
+    private static final Map<String, AgentToolDefinition> AGENT_TOOL_DEFINITIONS = Map.of(
+            "submission_analysis", new AgentToolDefinition(
+                    "submission_analysis",
+                    "Analyze the user's recent submissions for the current question and summarize pass rate, latest judge result, and execution metrics.",
+                    "{\"limit\": optional integer, default 10}"
+            ),
+            "knowledge_retrieval", new AgentToolDefinition(
+                    "knowledge_retrieval",
+                    "Search public knowledge related to the current programming problem, algorithm, or failure pattern.",
+                    "{\"query\": required string}"
+            ),
+            "testcase_generator", new AgentToolDefinition(
+                    "testcase_generator",
+                    "Generate boundary, tricky, and stress test ideas for the current programming problem.",
+                    "{}"
+            )
+    );
+
     @Resource
     private AiToolConfigMapper aiToolConfigMapper;
 
@@ -79,6 +100,55 @@ public class AgentToolsManager {
     /**
      * 最近提交分析工具。
      */
+    public List<AgentToolDefinition> listEnabledTools() {
+        Map<String, AiToolConfig> configMap = listEnabledToolConfigMap();
+        List<AgentToolDefinition> definitions = new ArrayList<>();
+        for (String toolName : TOOL_ORDER) {
+            if (configMap.containsKey(toolName) && AGENT_TOOL_DEFINITIONS.containsKey(toolName)) {
+                definitions.add(AGENT_TOOL_DEFINITIONS.get(toolName));
+            }
+        }
+        return definitions;
+    }
+
+    public boolean supportsTool(String toolName) {
+        String normalizedToolName = normalizeToolName(toolName);
+        return listEnabledTools().stream()
+                .anyMatch(tool -> tool.name().equalsIgnoreCase(normalizedToolName));
+    }
+
+    public String executeTool(String toolName, Map<String, Object> arguments, RuntimeContext runtimeContext) {
+        String normalizedToolName = normalizeToolName(toolName);
+        if (StringUtils.isBlank(normalizedToolName)) {
+            return recordEvent(runtimeContext, "unknown_tool", "error", "Tool name is blank.");
+        }
+        switch (normalizedToolName) {
+            case "submission_analysis":
+                long limit = resolveLong(arguments, "limit", 10L);
+                return executeTool(normalizedToolName, runtimeContext,
+                        context -> toolSubmissionAnalysis(context.userId(), context.question().getId(),
+                                context.contestId(), limit));
+            case "knowledge_retrieval":
+                if (StringUtils.isBlank(searchApiKey)) {
+                    return recordEvent(runtimeContext, normalizedToolName, "skipped",
+                            "Search API key is not configured.");
+                }
+                String query = resolveString(arguments, "query",
+                        runtimeContext.requestBody() == null ? null : runtimeContext.requestBody().getMessage());
+                if (StringUtils.isBlank(query)) {
+                    return recordEvent(runtimeContext, normalizedToolName, "skipped", "Search query is empty.");
+                }
+                return executeTool(normalizedToolName, runtimeContext,
+                        context -> new AgentTools(searchApiKey).searchWeb(query));
+            case "testcase_generator":
+                return executeTool(normalizedToolName, runtimeContext,
+                        context -> toolGenerateTestCases(context.question()));
+            default:
+                return recordEvent(runtimeContext, normalizedToolName, "error",
+                        "Unknown tool: " + normalizedToolName);
+        }
+    }
+
     @Tool(name = "submission_analysis", description = "Analyze the user's recent submissions for the current question and summarize pass rate and latest judge result.")
     public String submissionAnalysis(ToolContext toolContext) {
         return executeTool("submission_analysis", toolContext,
@@ -100,6 +170,10 @@ public class AgentToolsManager {
      */
     private String executeTool(String toolName, ToolContext toolContext, ToolExecutor executor) {
         RuntimeContext runtimeContext = getRuntimeContext(toolContext);
+        return executeTool(toolName, runtimeContext, executor);
+    }
+
+    private String executeTool(String toolName, RuntimeContext runtimeContext, ToolExecutor executor) {
         AiToolConfig toolConfig = resolveToolConfig(toolName);
         if (toolConfig == null || !Objects.equals(toolConfig.getEnabled(), 1)) {
             return recordEvent(runtimeContext, toolName, "skipped", "Tool is disabled.");
@@ -267,6 +341,48 @@ public class AgentToolsManager {
             }
         }
         return false;
+    }
+
+    private String normalizeToolName(String toolName) {
+        if (StringUtils.isBlank(toolName)) {
+            return null;
+        }
+        if ("search_web".equalsIgnoreCase(toolName)
+                || "searchweb".equalsIgnoreCase(toolName)
+                || "web_search".equalsIgnoreCase(toolName)) {
+            return "knowledge_retrieval";
+        }
+        return toolName.trim();
+    }
+
+    private String resolveString(Map<String, Object> arguments, String key, String defaultValue) {
+        if (arguments == null || arguments.isEmpty()) {
+            return defaultValue;
+        }
+        Object value = arguments.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        String text = String.valueOf(value).trim();
+        return StringUtils.defaultIfBlank(text, defaultValue);
+    }
+
+    private long resolveLong(Map<String, Object> arguments, String key, long defaultValue) {
+        if (arguments == null || arguments.isEmpty()) {
+            return defaultValue;
+        }
+        Object value = arguments.get(key);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                return Long.parseLong(String.valueOf(value).trim());
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
     }
 
     /**

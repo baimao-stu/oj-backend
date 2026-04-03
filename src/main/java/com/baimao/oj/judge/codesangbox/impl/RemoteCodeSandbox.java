@@ -8,7 +8,6 @@ import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.judge.codesangbox.CodeSandbox;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeRequest;
 import com.baimao.oj.judge.codesangbox.model.ExecuteCodeResponse;
-import org.springframework.beans.factory.annotation.Value;
 
 import static com.baimao.oj.judge.codesangbox.model.ConstantProperties.codesandboxUrl;
 

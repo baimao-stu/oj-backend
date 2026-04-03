@@ -356,6 +356,10 @@ public class QuestionController {
     @PostMapping("/question_submit/list/page")
     public BaseResponse<Page<QuestionSubmitVO>> listQuestionSubmitByPage(
             @RequestBody QuestionSubmitQueryRequest questionSubmitQueryRequest, HttpServletRequest request) {
+        final User loginUser = userService.getLoginUser(request);
+        if (!userService.isAdmin(loginUser)) {
+            questionSubmitQueryRequest.setUserId(loginUser.getId());
+        }
         long current = questionSubmitQueryRequest.getCurrent();
         long size = questionSubmitQueryRequest.getPageSize();
         //1. 查询到的是从数据库查到的题目提交列表，要做脱敏返回VO
@@ -364,7 +368,7 @@ public class QuestionController {
                 questionSubmitService.getQueryWrapper(questionSubmitQueryRequest));
 
         //将查到的题目提交列表脱敏为VO
-        Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage);
+        Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage, loginUser);
         return ResultUtils.success(questionSubmitVOPage);
     }
 

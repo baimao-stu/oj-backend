@@ -32,6 +32,12 @@ public class AiProperties {
      */
     private Integer maxHistoryMessages = 20;
 
+    private Integer agentMaxSteps = 6;
+
+    private Integer agentMaxDecisionRetries = 2;
+
+    private Integer agentMaxObservationChars = 1200;
+
     /**
      * 当数据库没有可用模型配置时的兜底提供商/模型/基础地址/接口密钥。
      * （用于数据库无生效模型配置场景）。
