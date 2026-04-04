@@ -6,6 +6,8 @@ import com.baimao.oj.ai.agent.model.AgentState;
 import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -140,12 +142,12 @@ public class PromptUtils {
     }
 
     public static String renderToolCatalog(AgentToolsManager agentToolsManager) {
-        List<AgentToolsManager.AgentToolDefinition> definitions = agentToolsManager.listEnabledTools();
-        if (definitions.isEmpty()) {
+        List<ToolDefinition> toolDefinitions = agentToolsManager.listEnabledTools();
+        if (toolDefinitions.isEmpty()) {
             return "- No tools are currently enabled. You should finish directly.";
         }
         List<String> lines = new ArrayList<>();
-        for (AgentToolsManager.AgentToolDefinition definition : definitions) {
+        for (ToolDefinition definition : toolDefinitions) {
             lines.add("- " + definition.name() + ": " + definition.description()
                     + " | input schema: " + definition.inputSchema());
         }

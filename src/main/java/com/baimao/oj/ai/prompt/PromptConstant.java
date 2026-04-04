@@ -28,4 +28,31 @@ public interface PromptConstant {
             - The runtime may ask you to plan, choose the next tool, observe results, or synthesize the final answer.
             - Do not easily offer a complete solution unless the user clearly requests help to solve a problem; you should only provide the thinking process instead.
             """;
+
+    /**
+     * 统一的用户提示词模板。
+     * 题目信息、语言和用户代码都通过参数注入，
+     * 避免继续手工拼接大段字符串。
+     */
+     String USER_PROMPT_CHAT_TEMPLATE = """
+            Question Title:
+            {title}
+
+            Question Content:
+            {content}
+
+            Programming Language:
+            {language}
+
+            Latest Judge Result:
+            {latestJudgeResult}
+
+            Current User Code:
+            ```{language}
+            {userCode}
+            ```
+
+            User Request:
+            {message}
+            """;
 }

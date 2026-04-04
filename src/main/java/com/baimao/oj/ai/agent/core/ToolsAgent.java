@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static com.baimao.oj.ai.prompt.PromptUtils.*;
@@ -51,6 +52,7 @@ public class ToolsAgent extends ReActAgent {
         state.setCurrentDecision(decision);
 
         AgentActionType actionType = decision == null ? AgentActionType.FINISH : decision.resolveActionType();
+        /** 给前端返回当前step的执行计划（思考结果）,真正的执行行动在 act 方法 */
         publishPlannerEvent(state.getRunContext(), state.getCurrentStep(), decision, actionType);
         return actionType == AgentActionType.TOOL;
     }
@@ -59,7 +61,7 @@ public class ToolsAgent extends ReActAgent {
     protected AgentResult act(AgentState state) {
         AgentDecision decision = state.getCurrentDecision();
         String toolName = StringUtils.defaultString(decision.getToolName()).trim();
-        // 工具需要的参数
+        /** 工具需要的参数 */
         Map<String, Object> toolInput = decision.getToolInput() == null
                 ? new LinkedHashMap<>()
                 : new LinkedHashMap<>(decision.getToolInput());

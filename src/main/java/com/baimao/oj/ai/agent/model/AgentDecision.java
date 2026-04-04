@@ -24,7 +24,7 @@ public class AgentDecision {
     private String thought;
 
     /**
-     * 给前端或日志展示的简短计划。
+     * 下一步行动的简短计划。
      */
     private List<String> plan = new ArrayList<>();
 

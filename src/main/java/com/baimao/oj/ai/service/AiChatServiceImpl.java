@@ -49,8 +49,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
-import static com.baimao.oj.ai.prompt.PromptConstant.DEFAULT_AGENT_SYSTEM_PROMPT;
-import static com.baimao.oj.ai.prompt.PromptConstant.DEFAULT_NORMAL_SYSTEM_PROMPT;
+import static com.baimao.oj.ai.prompt.PromptConstant.*;
 import static com.baimao.oj.ai.service.Constant.*;
 
 @Service
@@ -69,32 +68,6 @@ public class AiChatServiceImpl implements AiChatService {
     private static final String FINAL_OPEN = "<final>";
     private static final String FINAL_CLOSE = "</final>";
 
-    /**
-     * 统一的用户提示词模板。
-     * 题目信息、语言和用户代码都通过参数注入，
-     * 避免继续手工拼接大段字符串。
-     */
-    private static final String USER_PROMPT_TEMPLATE = """
-            Question Title:
-            {title}
-
-            Question Content:
-            {content}
-
-            Programming Language:
-            {language}
-
-            Latest Judge Result:
-            {latestJudgeResult}
-
-            Current User Code:
-            ```{language}
-            {userCode}
-            ```
-
-            User Request:
-            {message}
-            """;
 
     private record ParsedAssistantPayload(String finalContent, String reasoningSummary, boolean hasStructuredPayload) {
     }
@@ -585,10 +558,10 @@ public class AiChatServiceImpl implements AiChatService {
                     .build()).assistantContent();
         } else if (emitter != null) {
             content = streamSpringAi(systemPrompt, session, loginUser, question, contestId,
-                    requestBody, emitter, toolEvents, modeEnum);
+                    requestBody, emitter);
         } else {
             content = callSpringAi(systemPrompt, session, loginUser, question, contestId,
-                    requestBody, emitter, toolEvents, modeEnum);
+                    requestBody);
         }
         if (StringUtils.isBlank(content)) {
             content = buildFallbackAnswer(requestBody.getMessage(), toolEvents);
@@ -604,8 +577,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 普通模式只挂载聊天记忆，Agent 模式会额外挂载工具回调和运行时上下文。
      */
     private String callSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
-                                Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
-                                List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+                                Long contestId, AiChatSendRequest requestBody) {
         try {
             /**
              * 1、每次会话，生成一个ChatClient（用户可能每次选择了不同的模型，所以不能使用单例）
@@ -623,15 +595,11 @@ public class AiChatServiceImpl implements AiChatService {
                             buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
                     )
                     .system(systemPrompt)
-                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                    .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)
                             .params(buildUserPromptParams(question, requestBody)));
 //                    .options(DashScopeChatOptions.builder()
 //                            .model("qwen-max")
 //                            .build());
-
-            if (AiChatModeEnum.AGENT == modeEnum) {
-                // Agent 模式下把项目里的题目、用户、代码等上下文通过 toolContext 透传给工具层。
-            }
 
             return requestSpec.call().content();
         } catch (Exception e) {
@@ -644,8 +612,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 构建SafeGuardAdvisor，执行时保存违规日志
      */
     private String streamSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
-                                  Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
-                                  List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+                                  Long contestId, AiChatSendRequest requestBody, SseEmitter emitter) {
         StringBuilder contentBuilder = new StringBuilder();
         try {
             ChatClient.ChatClientRequestSpec requestSpec = chatClientBuilder.build()
@@ -657,11 +624,8 @@ public class AiChatServiceImpl implements AiChatService {
                             buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
                     )
                     .system(systemPrompt)
-                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                    .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)
                             .params(buildUserPromptParams(question, requestBody)));
-
-            if (AiChatModeEnum.AGENT == modeEnum) {
-            }
 
             requestSpec.stream()
                     .content()
@@ -771,19 +735,6 @@ public class AiChatServiceImpl implements AiChatService {
             return "N/A";
         }
         return StrUtil.sub(userCode, 0, 4000);
-    }
-
-    /**
-     * 构建工具运行时上下文。
-     * Spring AI 只负责调度工具，具体业务对象仍由项目自己传入。
-     */
-    private Map<String, Object> buildToolContext(User loginUser, Question question, Long contestId,
-                                                 AiChatSendRequest requestBody, SseEmitter emitter,
-                                                 List<AiToolEventVO> toolEvents) {
-        Map<String, Object> toolContext = new LinkedHashMap<>();
-        toolContext.put(AgentToolsManager.TOOL_RUNTIME_CONTEXT_KEY,
-                new AgentToolsManager.RuntimeContext(loginUser.getId(), question, contestId, requestBody, emitter, toolEvents));
-        return toolContext;
     }
 
     /**

@@ -75,7 +75,7 @@ public class AgentState {
         if (stepTraces.isEmpty()) {
             return "None";
         }
-        return stepTraces.stream()
+        String result = stepTraces.stream()
                 .map(trace -> {
                     StringBuilder sb = new StringBuilder();
                     sb.append("Step ").append(trace.getStepNo()).append('\n');
@@ -103,5 +103,6 @@ public class AgentState {
                     return sb.toString().trim();
                 })
                 .collect(Collectors.joining("\n\n"));
+        return result;
     }
 }
