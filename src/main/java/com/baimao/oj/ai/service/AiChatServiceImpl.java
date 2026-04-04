@@ -63,14 +63,6 @@ public class AiChatServiceImpl implements AiChatService {
 
     private static final String SAFE_GUARD_BLOCKED_RESPONSE = "由于内容敏感，我无法回复。我们能否换个说法或者讨论其他话题？";
     private static final String AI_CALL_FAILED_RESPONSE = "抱歉，我暂时无法回答你的问题。";
-    private static final String ANALYSIS_OPEN = "<analysis>";
-    private static final String ANALYSIS_CLOSE = "</analysis>";
-    private static final String FINAL_OPEN = "<final>";
-    private static final String FINAL_CLOSE = "</final>";
-
-
-    private record ParsedAssistantPayload(String finalContent, String reasoningSummary, boolean hasStructuredPayload) {
-    }
 
     @Resource
     private UserService userService;
@@ -423,14 +415,7 @@ public class AiChatServiceImpl implements AiChatService {
         AiChatMessageVO vo = new AiChatMessageVO();
         BeanUtils.copyProperties(message, vo);
         vo.setRawContent(message.getContent());
-        if (ROLE_ASSISTANT.equalsIgnoreCase(message.getRole())) {
-            ParsedAssistantPayload parsed = parseAssistantPayload(message.getContent());
-            vo.setFinalContent(parsed.hasStructuredPayload() ? parsed.finalContent() : message.getContent());
-            vo.setReasoningSummary(parsed.reasoningSummary());
-        } else {
-            vo.setFinalContent(message.getContent());
-            vo.setReasoningSummary("");
-        }
+        vo.setFinalContent(message.getContent());
         vo.setReasoningDurationMs(reasoningDurationMs);
         return vo;
     }
@@ -793,44 +778,9 @@ public class AiChatServiceImpl implements AiChatService {
         map.put("content", StringUtils.defaultString(messageVO.getContent()));
         map.put("rawContent", StringUtils.defaultString(messageVO.getRawContent()));
         map.put("finalContent", StringUtils.defaultString(messageVO.getFinalContent()));
-        map.put("reasoningSummary", StringUtils.defaultString(messageVO.getReasoningSummary()));
         map.put("reasoningDurationMs", messageVO.getReasoningDurationMs());
         map.put("toolCalls", StringUtils.defaultString(messageVO.getToolCalls()));
         return map;
-    }
-
-    /**
-     * 解析出AI回复内容中<analysis>和<final>标签包裹的部分，分别作为推理分析和最终回复返回给前端。
-     * @param raw
-     * @return
-     */
-    private ParsedAssistantPayload parseAssistantPayload(String raw) {
-        String normalized = StringUtils.defaultString(raw);
-        String lower = normalized.toLowerCase();
-        int analysisOpenIndex = lower.indexOf(ANALYSIS_OPEN);
-        int analysisCloseIndex = lower.indexOf(ANALYSIS_CLOSE);
-        int finalOpenIndex = lower.indexOf(FINAL_OPEN);
-        int finalCloseIndex = lower.indexOf(FINAL_CLOSE);
-        boolean hasStructuredPayload = analysisOpenIndex >= 0 || finalOpenIndex >= 0;
-
-        String reasoningSummary = analysisOpenIndex >= 0
-                ? normalized.substring(
-                        analysisOpenIndex + ANALYSIS_OPEN.length(),
-                        analysisCloseIndex >= 0 ? analysisCloseIndex : normalized.length())
-                .trim()
-                : "";
-
-        String finalContent = "";
-        if (finalOpenIndex >= 0) {
-            finalContent = normalized.substring(
-                    finalOpenIndex + FINAL_OPEN.length(),
-                    finalCloseIndex >= 0 ? finalCloseIndex : normalized.length())
-                    .trim();
-        } else if (!hasStructuredPayload) {
-            finalContent = normalized;
-        }
-
-        return new ParsedAssistantPayload(finalContent, reasoningSummary, hasStructuredPayload);
     }
 
 }

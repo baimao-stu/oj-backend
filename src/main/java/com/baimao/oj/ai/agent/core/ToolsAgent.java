@@ -24,11 +24,6 @@ import static com.baimao.oj.ai.service.Constant.EVENT_TOOL;
  */
 public class ToolsAgent extends ReActAgent {
 
-    private static final String ANALYSIS_OPEN = "<analysis>";
-    private static final String ANALYSIS_CLOSE = "</analysis>";
-    private static final String FINAL_OPEN = "<final>";
-    private static final String FINAL_CLOSE = "</final>";
-
     private final int maxDecisionRetries;
     private final int maxObservationChars;
     private final ObjectMapper objectMapper;
@@ -96,16 +91,15 @@ public class ToolsAgent extends ReActAgent {
         if (StringUtils.isBlank(finalAnswer) && finalDecision != null) {
             finalAnswer = StringUtils.defaultString(finalDecision.getFinalAnswer()).trim();
         }
-        String reasoningSummary = buildReasoningSummary(state, finalDecision, null);
-        return new AgentResult(composeAssistantContent(reasoningSummary, finalAnswer), finalAnswer, reasoningSummary);
+        String normalizedAnswer = StringUtils.defaultString(finalAnswer).trim();
+        return new AgentResult(normalizedAnswer, normalizedAnswer);
     }
 
     @Override
     protected AgentResult finishBecauseMaxSteps(AgentState state) {
         String finalAnswer = synthesizeFinalAnswer(state);
-        String reasoningSummary = buildReasoningSummary(state, null,
-                "Reached the configured step limit and synthesized the best grounded answer from the collected observations.");
-        return new AgentResult(composeAssistantContent(reasoningSummary, finalAnswer), finalAnswer, reasoningSummary);
+        String normalizedAnswer = StringUtils.defaultString(finalAnswer).trim();
+        return new AgentResult(normalizedAnswer, normalizedAnswer);
     }
 
     /**
@@ -190,44 +184,6 @@ public class ToolsAgent extends ReActAgent {
         return "抱歉，我暂时无法完成最终整理，但已经获取到部分证据。请根据上方执行轨迹继续分析。";
     }
 
-    private String buildReasoningSummary(AgentState state, AgentDecision finalDecision, String tailNote) {
-        List<String> lines = new ArrayList<>();
-        for (AgentStepTrace trace : state.getStepTraces()) {
-            StringBuilder line = new StringBuilder("- Step ").append(trace.getStepNo()).append(": ");
-            List<String> parts = new ArrayList<>();
-            if (StringUtils.isNotBlank(trace.getThought())) {
-                parts.add(trace.getThought());
-            }
-            if (trace.getPlan() != null && !trace.getPlan().isEmpty()) {
-                parts.add("plan=" + String.join(" -> ", trace.getPlan()));
-            }
-            if (StringUtils.isNotBlank(trace.getToolName())) {
-                parts.add("action=" + trace.getToolName());
-            }
-            if (StringUtils.isNotBlank(trace.getObservation())) {
-                parts.add("observation=" + trimForPrompt(trace.getObservation(), 220));
-            }
-            line.append(String.join("; ", parts));
-            lines.add(line.toString());
-        }
-        if (finalDecision != null && StringUtils.isNotBlank(finalDecision.getThought())) {
-            lines.add("- Final reasoning: " + finalDecision.getThought());
-        }
-        if (StringUtils.isNotBlank(tailNote)) {
-            lines.add("- " + tailNote);
-        }
-        return String.join("\n", lines);
-    }
-
-    private String composeAssistantContent(String reasoningSummary, String finalAnswer) {
-        return ANALYSIS_OPEN + "\n"
-                + StringUtils.defaultString(reasoningSummary).trim() + "\n"
-                + ANALYSIS_CLOSE + "\n"
-                + FINAL_OPEN + "\n"
-                + StringUtils.defaultString(finalAnswer).trim() + "\n"
-                + FINAL_CLOSE;
-    }
-
     /**
      * SSE 输出 LLM 思考情况（每一个step发送一次思考）给前端展示
      * @param runContext
@@ -241,7 +197,7 @@ public class ToolsAgent extends ReActAgent {
     }
 
     /**
-     * 总结当前步骤 LLM 的思考结果: 将格式化的 AgentDecision 对象转换成一段人类可读的字符串
+     * 总结当前步骤 LLM 的思考结果: 将格式化的 AgentDecision 对象转换成一段人类可读的字符串（保存为数据库聊天信息表中的工具调用轨迹）
      */
     private String buildPlannerSummary(int stepNo, AgentDecision decision, AgentActionType actionType) {
         List<String> parts = new ArrayList<>();
