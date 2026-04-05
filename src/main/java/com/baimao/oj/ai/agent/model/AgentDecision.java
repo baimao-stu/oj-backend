@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 模型在单步规划阶段返回的标准决策对象。
+ * 模型在单步规划阶段返回的标准决策对象 -> AI 的思考结果。
  */
 @Data
 @NoArgsConstructor
@@ -24,22 +24,22 @@ public class AgentDecision {
     private String thought;
 
     /**
-     * 给前端或日志展示的简短计划。
+     * 下一步行动的简短计划。
      */
     private List<String> plan = new ArrayList<>();
 
     /**
-     * 当前动作类型，通常是 tool 或 finish。
+     * 当前要执行的动作，tool 或 finish。
      */
     private String action;
 
     /**
-     * 当 action=tool 时要调用的工具名。
+     * 当 action=tool 时 (LLM) 要调用的工具名。（System prompt限制了一步最多调用一个Tool）
      */
     private String toolName;
 
     /**
-     * 传给工具的输入参数。
+     * (LLM)传给工具的输入参数。
      */
     private Map<String, Object> toolInput = new LinkedHashMap<>();
 

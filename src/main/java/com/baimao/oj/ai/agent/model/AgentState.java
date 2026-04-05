@@ -7,13 +7,19 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Agent 一次运行过程中的可变状态。
+ * 当前步骤下 Agent的状态
  */
 public class AgentState {
 
     private final AgentRunContext runContext;
 
+    // 每一步的轨迹列表（thought/action/observation）
     private final List<AgentStepTrace> stepTraces = new ArrayList<>();
+
+    // 当前 step 的决策结果（思考结果），供 act / finish 使用
+    private AgentDecision currentDecision;
+
+    private boolean finished;
 
     private int currentStep;
 
@@ -27,6 +33,22 @@ public class AgentState {
 
     public List<AgentStepTrace> getStepTraces() {
         return stepTraces;
+    }
+
+    public AgentDecision getCurrentDecision() {
+        return currentDecision;
+    }
+
+    public void setCurrentDecision(AgentDecision currentDecision) {
+        this.currentDecision = currentDecision;
+    }
+
+    public boolean isFinished() {
+        return finished;
+    }
+
+    public void markFinished() {
+        this.finished = true;
     }
 
     public int getCurrentStep() {
@@ -44,13 +66,16 @@ public class AgentState {
     }
 
     /**
-     * 将历史步骤渲染成给模型看的 scratchpad 文本。
+     * 把历史轨迹（思维链）拼成结构化文本（Step/Thought/Plan/Action/Observation），
+     * 并按 maxObservationChars 截断 Observation，避免 prompt 过大。
+     * @param maxObservationChars
+     * @return
      */
     public String renderScratchpad(int maxObservationChars) {
         if (stepTraces.isEmpty()) {
             return "None";
         }
-        return stepTraces.stream()
+        String result = stepTraces.stream()
                 .map(trace -> {
                     StringBuilder sb = new StringBuilder();
                     sb.append("Step ").append(trace.getStepNo()).append('\n');
@@ -70,7 +95,6 @@ public class AgentState {
                     sb.append('\n');
                     if (StringUtils.isNotBlank(trace.getObservation())) {
                         String observation = trace.getObservation();
-                        // 观察结果可能很长，这里做截断以控制提示词体积。
                         if (observation.length() > maxObservationChars) {
                             observation = observation.substring(0, maxObservationChars) + "...";
                         }
@@ -79,5 +103,6 @@ public class AgentState {
                     return sb.toString().trim();
                 })
                 .collect(Collectors.joining("\n\n"));
+        return result;
     }
 }

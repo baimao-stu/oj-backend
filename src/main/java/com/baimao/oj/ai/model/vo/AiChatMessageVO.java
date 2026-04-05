@@ -35,10 +35,6 @@ public class AiChatMessageVO implements Serializable {
      */
     private String finalContent;
     /**
-     * 结构化解析后的思考摘要。
-     */
-    private String reasoningSummary;
-    /**
      * 当前轮回复耗时，单位毫秒。
      */
     private Long reasoningDurationMs;

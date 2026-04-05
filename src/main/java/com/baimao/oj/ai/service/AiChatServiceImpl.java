@@ -4,30 +4,21 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baimao.oj.ai.advisor.MyLoggerAdvisor;
 import com.baimao.oj.ai.agent.model.AgentRunContext;
-import com.baimao.oj.ai.agent.service.AutonomousAgentService;
+import com.baimao.oj.ai.agent.service.AgentService;
+import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.config.AiProperties;
-import com.baimao.oj.ai.mapper.AiChatMessageMapper;
-import com.baimao.oj.ai.mapper.AiChatSessionMapper;
-import com.baimao.oj.ai.mapper.AiDisableRuleMapper;
-import com.baimao.oj.ai.mapper.AiPromptConfigMapper;
-import com.baimao.oj.ai.mapper.AiSensitiveWordMapper;
-import com.baimao.oj.ai.mapper.AiViolationLogMapper;
+import com.baimao.oj.ai.mapper.*;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import com.baimao.oj.ai.model.dto.AiChatSessionRequest;
-import com.baimao.oj.ai.model.entity.AiChatMessage;
-import com.baimao.oj.ai.model.entity.AiChatSession;
-import com.baimao.oj.ai.model.entity.AiDisableRule;
-import com.baimao.oj.ai.model.entity.AiPromptConfig;
-import com.baimao.oj.ai.model.entity.AiSensitiveWord;
-import com.baimao.oj.ai.model.entity.AiViolationLog;
+import com.baimao.oj.ai.model.entity.*;
 import com.baimao.oj.ai.model.enums.AiChatModeEnum;
 import com.baimao.oj.ai.model.enums.AiRuleScopeEnum;
 import com.baimao.oj.ai.model.enums.AiSessionStatusEnum;
 import com.baimao.oj.ai.model.vo.AiChatMessageVO;
 import com.baimao.oj.ai.model.vo.AiChatSessionVO;
 import com.baimao.oj.ai.model.vo.AiToolEventVO;
-import com.baimao.oj.ai.tools.AgentToolsManager;
 import com.baimao.oj.common.ErrorCode;
 import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.model.entity.Contest;
@@ -48,31 +39,21 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SafeGuardAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-import static com.baimao.oj.ai.service.Constant.DEFAULT_AGENT_SYSTEM_PROMPT;
-import static com.baimao.oj.ai.service.Constant.DEFAULT_NORMAL_SYSTEM_PROMPT;
-import static com.baimao.oj.ai.service.Constant.EVENT_DELTA;
-import static com.baimao.oj.ai.service.Constant.EVENT_DONE;
-import static com.baimao.oj.ai.service.Constant.EVENT_ERROR;
-import static com.baimao.oj.ai.service.Constant.EVENT_META;
-import static com.baimao.oj.ai.service.Constant.ROLE_ASSISTANT;
-import static com.baimao.oj.ai.service.Constant.ROLE_USER;
+import static com.baimao.oj.ai.prompt.PromptConstant.*;
+import static com.baimao.oj.ai.service.Constant.*;
 
 @Service
 @Slf4j
@@ -85,40 +66,7 @@ public class AiChatServiceImpl implements AiChatService {
 
     private static final String SAFE_GUARD_BLOCKED_RESPONSE = "由于内容敏感，我无法回复。我们能否换个说法或者讨论其他话题？";
     private static final String AI_CALL_FAILED_RESPONSE = "抱歉，我暂时无法回答你的问题。";
-    private static final String ANALYSIS_OPEN = "<analysis>";
-    private static final String ANALYSIS_CLOSE = "</analysis>";
-    private static final String FINAL_OPEN = "<final>";
-    private static final String FINAL_CLOSE = "</final>";
-
-    /**
-     * 统一的用户提示词模板。
-     * 题目信息、语言和用户代码都通过参数注入，
-     * 避免继续手工拼接大段字符串。
-     */
-    private static final String USER_PROMPT_TEMPLATE = """
-            Question Title:
-            {title}
-
-            Question Content:
-            {content}
-
-            Programming Language:
-            {language}
-
-            Latest Judge Result:
-            {latestJudgeResult}
-
-            Current User Code:
-            ```{language}
-            {userCode}
-            ```
-
-            User Request:
-            {message}
-            """;
-
-    private record ParsedAssistantPayload(String finalContent, String reasoningSummary, boolean hasStructuredPayload) {
-    }
+    private static final String SSE_TIMEOUT_ERROR_MESSAGE = "请求超时，请重试";
 
     @Resource
     private UserService userService;
@@ -157,10 +105,7 @@ public class AiChatServiceImpl implements AiChatService {
     private AiDatabaseChatMemory aiDatabaseChatMemory;
 
     @Resource
-    private AgentToolsManager agentToolsManager;
-
-    @Resource
-    private AutonomousAgentService autonomousAgentService;
+    private AgentService agentService;
 
     /**
      * SSE 流式响应使用独立线程池异步执行，避免阻塞请求线程。
@@ -241,21 +186,64 @@ public class AiChatServiceImpl implements AiChatService {
      * 内部仍然复用统一的 doChat 逻辑，只是在结果返回阶段拆成 SSE 事件。
      */
     public SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
-        SseEmitter emitter = new SseEmitter(180000L);
-        streamExecutor.submit(() -> {
+        SseEmitter emitter = new SseEmitter(1800000L);
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
+        final Future<?>[] streamTaskRef = new Future<?>[1];
+
+        emitter.onCompletion(() -> {
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+        });
+        emitter.onTimeout(() -> {
+            try {
+                sendEvent(emitter, EVENT_ERROR, SSE_TIMEOUT_ERROR_MESSAGE);
+            } catch (Exception ex) {
+                log.warn("send timeout event failed", ex);
+            }
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+            try {
+                emitter.complete();
+            } catch (Exception ex) {
+                log.debug("complete emitter on timeout failed", ex);
+            }
+        });
+        emitter.onError((ex) -> {
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+        });
+
+        Future<?> streamTask = streamExecutor.submit(() -> {
             try {
                 doChat(aiChatSendRequest, request, emitter);
-                emitter.complete();
+                if (!streamClosed.get()) {
+                    emitter.complete();
+                }
             } catch (Exception e) {
+                if (streamClosed.get()) {
+                    return;
+                }
                 log.error("streamChat error", e);
                 try {
                     sendEvent(emitter, EVENT_ERROR, e.getMessage());
                 } catch (Exception ex) {
                     log.error("send stream error event failed", ex);
                 }
-                emitter.completeWithError(e);
+                if (!streamClosed.get()) {
+                    emitter.completeWithError(e);
+                }
             }
         });
+        streamTaskRef[0] = streamTask;
         return emitter;
     }
 
@@ -474,14 +462,7 @@ public class AiChatServiceImpl implements AiChatService {
         AiChatMessageVO vo = new AiChatMessageVO();
         BeanUtils.copyProperties(message, vo);
         vo.setRawContent(message.getContent());
-        if (ROLE_ASSISTANT.equalsIgnoreCase(message.getRole())) {
-            ParsedAssistantPayload parsed = parseAssistantPayload(message.getContent());
-            vo.setFinalContent(parsed.hasStructuredPayload() ? parsed.finalContent() : message.getContent());
-            vo.setReasoningSummary(parsed.reasoningSummary());
-        } else {
-            vo.setFinalContent(message.getContent());
-            vo.setReasoningSummary("");
-        }
+        vo.setFinalContent(message.getContent());
         vo.setReasoningDurationMs(reasoningDurationMs);
         return vo;
     }
@@ -596,7 +577,7 @@ public class AiChatServiceImpl implements AiChatService {
                                             SseEmitter emitter, List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
         String content;
         if (AiChatModeEnum.AGENT == modeEnum) {
-            content = autonomousAgentService.run(AgentRunContext.builder()
+            content = agentService.run(AgentRunContext.builder()
                     .sessionId(session.getId())
                     .loginUser(loginUser)
                     .question(question)
@@ -609,10 +590,10 @@ public class AiChatServiceImpl implements AiChatService {
                     .build()).assistantContent();
         } else if (emitter != null) {
             content = streamSpringAi(systemPrompt, session, loginUser, question, contestId,
-                    requestBody, emitter, toolEvents, modeEnum);
+                    requestBody, emitter);
         } else {
             content = callSpringAi(systemPrompt, session, loginUser, question, contestId,
-                    requestBody, emitter, toolEvents, modeEnum);
+                    requestBody);
         }
         if (StringUtils.isBlank(content)) {
             content = buildFallbackAnswer(requestBody.getMessage(), toolEvents);
@@ -628,8 +609,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 普通模式只挂载聊天记忆，Agent 模式会额外挂载工具回调和运行时上下文。
      */
     private String callSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
-                                Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
-                                List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+                                Long contestId, AiChatSendRequest requestBody) {
         try {
             /**
              * 1、每次会话，生成一个ChatClient（用户可能每次选择了不同的模型，所以不能使用单例）
@@ -644,18 +624,15 @@ public class AiChatServiceImpl implements AiChatService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(session.getId()))
                                     .build(),
-                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage()),
+                            new MyLoggerAdvisor()
                     )
                     .system(systemPrompt)
-                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                    .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)
                             .params(buildUserPromptParams(question, requestBody)));
 //                    .options(DashScopeChatOptions.builder()
 //                            .model("qwen-max")
 //                            .build());
-
-            if (AiChatModeEnum.AGENT == modeEnum) {
-                // Agent 模式下把项目里的题目、用户、代码等上下文通过 toolContext 透传给工具层。
-            }
 
             return requestSpec.call().content();
         } catch (Exception e) {
@@ -668,8 +645,7 @@ public class AiChatServiceImpl implements AiChatService {
      * 构建SafeGuardAdvisor，执行时保存违规日志
      */
     private String streamSpringAi(String systemPrompt, AiChatSession session, User loginUser, Question question,
-                                  Long contestId, AiChatSendRequest requestBody, SseEmitter emitter,
-                                  List<AiToolEventVO> toolEvents, AiChatModeEnum modeEnum) {
+                                  Long contestId, AiChatSendRequest requestBody, SseEmitter emitter) {
         StringBuilder contentBuilder = new StringBuilder();
         try {
             ChatClient.ChatClientRequestSpec requestSpec = chatClientBuilder.build()
@@ -678,14 +654,12 @@ public class AiChatServiceImpl implements AiChatService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(session.getId()))
                                     .build(),
-                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage()),
+                            new MyLoggerAdvisor()
                     )
                     .system(systemPrompt)
-                    .user(user -> user.text(USER_PROMPT_TEMPLATE)
+                    .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)
                             .params(buildUserPromptParams(question, requestBody)));
-
-            if (AiChatModeEnum.AGENT == modeEnum) {
-            }
 
             requestSpec.stream()
                     .content()
@@ -798,19 +772,6 @@ public class AiChatServiceImpl implements AiChatService {
     }
 
     /**
-     * 构建工具运行时上下文。
-     * Spring AI 只负责调度工具，具体业务对象仍由项目自己传入。
-     */
-    private Map<String, Object> buildToolContext(User loginUser, Question question, Long contestId,
-                                                 AiChatSendRequest requestBody, SseEmitter emitter,
-                                                 List<AiToolEventVO> toolEvents) {
-        Map<String, Object> toolContext = new LinkedHashMap<>();
-        toolContext.put(AgentToolsManager.TOOL_RUNTIME_CONTEXT_KEY,
-                new AgentToolsManager.RuntimeContext(loginUser.getId(), question, contestId, requestBody, emitter, toolEvents));
-        return toolContext;
-    }
-
-    /**
      * AI 调用失败时的降级回复。
      */
     private String buildFallbackAnswer(String userMessage, List<AiToolEventVO> toolEvents) {
@@ -866,44 +827,9 @@ public class AiChatServiceImpl implements AiChatService {
         map.put("content", StringUtils.defaultString(messageVO.getContent()));
         map.put("rawContent", StringUtils.defaultString(messageVO.getRawContent()));
         map.put("finalContent", StringUtils.defaultString(messageVO.getFinalContent()));
-        map.put("reasoningSummary", StringUtils.defaultString(messageVO.getReasoningSummary()));
         map.put("reasoningDurationMs", messageVO.getReasoningDurationMs());
         map.put("toolCalls", StringUtils.defaultString(messageVO.getToolCalls()));
         return map;
-    }
-
-    /**
-     * 解析出AI回复内容中<analysis>和<final>标签包裹的部分，分别作为推理分析和最终回复返回给前端。
-     * @param raw
-     * @return
-     */
-    private ParsedAssistantPayload parseAssistantPayload(String raw) {
-        String normalized = StringUtils.defaultString(raw);
-        String lower = normalized.toLowerCase();
-        int analysisOpenIndex = lower.indexOf(ANALYSIS_OPEN);
-        int analysisCloseIndex = lower.indexOf(ANALYSIS_CLOSE);
-        int finalOpenIndex = lower.indexOf(FINAL_OPEN);
-        int finalCloseIndex = lower.indexOf(FINAL_CLOSE);
-        boolean hasStructuredPayload = analysisOpenIndex >= 0 || finalOpenIndex >= 0;
-
-        String reasoningSummary = analysisOpenIndex >= 0
-                ? normalized.substring(
-                        analysisOpenIndex + ANALYSIS_OPEN.length(),
-                        analysisCloseIndex >= 0 ? analysisCloseIndex : normalized.length())
-                .trim()
-                : "";
-
-        String finalContent = "";
-        if (finalOpenIndex >= 0) {
-            finalContent = normalized.substring(
-                    finalOpenIndex + FINAL_OPEN.length(),
-                    finalCloseIndex >= 0 ? finalCloseIndex : normalized.length())
-                    .trim();
-        } else if (!hasStructuredPayload) {
-            finalContent = normalized;
-        }
-
-        return new ParsedAssistantPayload(finalContent, reasoningSummary, hasStructuredPayload);
     }
 
 }

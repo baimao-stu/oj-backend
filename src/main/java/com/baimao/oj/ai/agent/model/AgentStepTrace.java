@@ -49,7 +49,7 @@ public class AgentStepTrace {
     private String toolInputJson;
 
     /**
-     * 工具执行后的观察结果。
+     * 工具执行结果（用于LLM观察）。
      */
     private String observation;
 }
