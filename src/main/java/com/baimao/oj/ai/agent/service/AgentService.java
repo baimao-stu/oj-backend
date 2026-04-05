@@ -1,5 +1,6 @@
 package com.baimao.oj.ai.agent.service;
 
+import com.baimao.oj.ai.advisor.MyLoggerAdvisor;
 import com.baimao.oj.ai.agent.core.ACoderAgent;
 import com.baimao.oj.ai.agent.llm.AgentLlmCaller;
 import com.baimao.oj.ai.agent.model.AgentResult;
@@ -69,7 +70,9 @@ public class AgentService {
                     .advisors(
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(runContext.getSessionId()))
-                                    .build()
+                                    .build(),
+                            runContext.getSafeGuardAdvisor(),
+                            new MyLoggerAdvisor()
                     );
             if (runContext.getSafeGuardAdvisor() != null) {
                 requestSpec = requestSpec.advisors(runContext.getSafeGuardAdvisor());
@@ -94,7 +97,9 @@ public class AgentService {
                     .advisors(
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(runContext.getSessionId()))
-                                    .build()
+                                    .build(),
+                            runContext.getSafeGuardAdvisor(),
+                            new MyLoggerAdvisor()
                     );
             if (runContext.getSafeGuardAdvisor() != null) {
                 requestSpec = requestSpec.advisors(runContext.getSafeGuardAdvisor());

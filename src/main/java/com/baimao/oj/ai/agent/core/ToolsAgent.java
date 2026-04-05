@@ -113,7 +113,7 @@ public class ToolsAgent extends ReActAgent {
         for (int attempt = 1; attempt <= maxDecisionRetries; attempt++) {
             String rawResponse = llmCaller.call(
                     state.getRunContext(),
-                    buildDecisionSystemPrompt(state),
+                    state.getRunContext().getBaseSystemPrompt(),
                     buildDecisionUserPrompt(state, parseError, agentToolsManager, maxObservationChars)
             );
             // LLM 的决策，如还需工具调用，则 decision 的 action=tool，否则为 finish

@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baimao.oj.ai.advisor.MyLoggerAdvisor;
 import com.baimao.oj.ai.agent.model.AgentRunContext;
 import com.baimao.oj.ai.agent.service.AgentService;
 import com.baimao.oj.ai.agent.tools.AgentToolsManager;
@@ -45,8 +46,10 @@ import reactor.core.publisher.Flux;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static com.baimao.oj.ai.prompt.PromptConstant.*;
@@ -63,6 +66,7 @@ public class AiChatServiceImpl implements AiChatService {
 
     private static final String SAFE_GUARD_BLOCKED_RESPONSE = "由于内容敏感，我无法回复。我们能否换个说法或者讨论其他话题？";
     private static final String AI_CALL_FAILED_RESPONSE = "抱歉，我暂时无法回答你的问题。";
+    private static final String SSE_TIMEOUT_ERROR_MESSAGE = "请求超时，请重试";
 
     @Resource
     private UserService userService;
@@ -182,21 +186,64 @@ public class AiChatServiceImpl implements AiChatService {
      * 内部仍然复用统一的 doChat 逻辑，只是在结果返回阶段拆成 SSE 事件。
      */
     public SseEmitter streamChat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
-        SseEmitter emitter = new SseEmitter(180000L);
-        streamExecutor.submit(() -> {
+        SseEmitter emitter = new SseEmitter(1800000L);
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
+        final Future<?>[] streamTaskRef = new Future<?>[1];
+
+        emitter.onCompletion(() -> {
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+        });
+        emitter.onTimeout(() -> {
+            try {
+                sendEvent(emitter, EVENT_ERROR, SSE_TIMEOUT_ERROR_MESSAGE);
+            } catch (Exception ex) {
+                log.warn("send timeout event failed", ex);
+            }
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+            try {
+                emitter.complete();
+            } catch (Exception ex) {
+                log.debug("complete emitter on timeout failed", ex);
+            }
+        });
+        emitter.onError((ex) -> {
+            streamClosed.set(true);
+            Future<?> task = streamTaskRef[0];
+            if (task != null && !task.isDone()) {
+                task.cancel(true);
+            }
+        });
+
+        Future<?> streamTask = streamExecutor.submit(() -> {
             try {
                 doChat(aiChatSendRequest, request, emitter);
-                emitter.complete();
+                if (!streamClosed.get()) {
+                    emitter.complete();
+                }
             } catch (Exception e) {
+                if (streamClosed.get()) {
+                    return;
+                }
                 log.error("streamChat error", e);
                 try {
                     sendEvent(emitter, EVENT_ERROR, e.getMessage());
                 } catch (Exception ex) {
                     log.error("send stream error event failed", ex);
                 }
-                emitter.completeWithError(e);
+                if (!streamClosed.get()) {
+                    emitter.completeWithError(e);
+                }
             }
         });
+        streamTaskRef[0] = streamTask;
         return emitter;
     }
 
@@ -577,7 +624,8 @@ public class AiChatServiceImpl implements AiChatService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(session.getId()))
                                     .build(),
-                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage()),
+                            new MyLoggerAdvisor()
                     )
                     .system(systemPrompt)
                     .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)
@@ -606,7 +654,8 @@ public class AiChatServiceImpl implements AiChatService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(session.getId()))
                                     .build(),
-                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage())
+                            buildSafeGuardAdvisor(loginUser, session, requestBody.getMessage()),
+                            new MyLoggerAdvisor()
                     )
                     .system(systemPrompt)
                     .user(user -> user.text(USER_PROMPT_CHAT_TEMPLATE)

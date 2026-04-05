@@ -6,6 +6,7 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
+import com.baimao.oj.model.dto.question.JudgeCase;
 import com.baimao.oj.model.entity.Question;
 import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.service.QuestionSubmitService;
@@ -223,6 +224,44 @@ public class AgentTools {
         return String.join("\n", lines);
     }
 
+    /**
+     * 分析当前样例 / 最近判题报错的可能原因。
+     */
+    @Tool(name = "sample_error_analyzer",
+            description = "Analyze the current sample or latest judge error and explain likely root causes with actionable checks.")
+    public String analyzeSampleError(
+            @ToolParam(description = "Optional raw error text from user", required = false) String errorText,
+            ToolContext toolContext) {
+        AgentToolsManager.RuntimeContext runtimeContext = getRuntimeContext(toolContext);
+        Question question = runtimeContext.question();
+        String latestJudgeResult = runtimeContext.requestBody() == null ? null : runtimeContext.requestBody().getLatestJudgeResult();
+        String resolvedErrorText = StringUtils.defaultIfBlank(StringUtils.trimToNull(errorText),
+                StringUtils.trimToNull(latestJudgeResult));
+        if (StringUtils.isBlank(resolvedErrorText)) {
+            return "当前没有检测到明确报错信息。请补充 latestJudgeResult 或粘贴报错原文（编译器/运行时日志），我会继续定位。";
+        }
+
+        String category = detectErrorCategory(resolvedErrorText);
+        List<String> reasons = buildReasonHints(category, resolvedErrorText);
+        List<String> sampleHints = buildSampleHints(question);
+
+        List<String> lines = new ArrayList<>();
+        lines.add("报错类型判断：" + category);
+        lines.add("判题/报错信息：" + resolvedErrorText);
+        lines.add("可能原因：");
+        for (String reason : reasons) {
+            lines.add("- " + reason);
+        }
+        if (CollUtil.isNotEmpty(sampleHints)) {
+            lines.add("样例对照建议：");
+            for (String sampleHint : sampleHints) {
+                lines.add("- " + sampleHint);
+            }
+        }
+        lines.add("下一步：先用题目样例逐条本地跑并打印中间变量，确认是输入解析、核心逻辑还是边界处理出错。");
+        return String.join("\n", lines);
+    }
+
     private static List<String> extractTags(String tagsJson) {
         if (StringUtils.isBlank(tagsJson)) {
             return new ArrayList<>();
@@ -252,6 +291,95 @@ public class AgentTools {
             }
         }
         return false;
+    }
+
+    private static String detectErrorCategory(String errorText) {
+        String lower = StringUtils.defaultString(errorText).toLowerCase();
+        if (containsAny(lower, "compile", "compilation", "syntax", "编译", "语法", "cannot find symbol")) {
+            return "编译错误";
+        }
+        if (containsAny(lower, "runtime error", "exception", "nullpointer", "数组越界", "空指针", "运行时")) {
+            return "运行时错误";
+        }
+        if (containsAny(lower, "wrong answer", "wa", "答案错误", "expected", "输出不一致")) {
+            return "答案错误";
+        }
+        if (containsAny(lower, "time limit", "tle", "超时")) {
+            return "超时";
+        }
+        if (containsAny(lower, "memory limit", "mle", "内存超限")) {
+            return "内存超限";
+        }
+        return "未知类型错误";
+    }
+
+    private static List<String> buildReasonHints(String category, String errorText) {
+        List<String> hints = new ArrayList<>();
+        switch (category) {
+            case "编译错误" -> {
+                hints.add("变量名/方法名拼写与声明不一致，或缺少必要导包。" );
+                hints.add("语法结构不完整（括号、分号、泛型尖括号）导致编译器提前中断。" );
+                hints.add("函数签名与题目要求不一致（返回值、参数数量、类名/主函数）。" );
+            }
+            case "运行时错误" -> {
+                hints.add("边界检查不足：空数组、空字符串、下标越界、除零等。" );
+                hints.add("空引用访问（如集合/对象未初始化）引发异常。" );
+                hints.add("递归终止条件缺失或栈深过大导致栈溢出。" );
+            }
+            case "答案错误" -> {
+                hints.add("对题意理解偏差：返回值含义、输出格式或顺序不符合判题要求。" );
+                hints.add("边界条件遗漏（最小值、最大值、重复元素、负数等）。" );
+                hints.add("状态更新顺序或循环范围存在 off-by-one 问题。" );
+            }
+            case "超时" -> {
+                hints.add("算法复杂度过高，可能需要从 O(n^2) 优化到 O(n log n)/O(n)。" );
+                hints.add("循环中重复计算可预处理的信息，缺少剪枝或缓存。" );
+                hints.add("I/O 处理较慢，批量读取与输出可减少额外开销。" );
+            }
+            case "内存超限" -> {
+                hints.add("保存了不必要的中间状态或复制了大数组/字符串。" );
+                hints.add("DP 维度过高，可尝试滚动数组或状态压缩。" );
+                hints.add("递归深度过深且每层占用较大栈帧。" );
+            }
+            default -> {
+                hints.add("报错文本未包含典型关键词，请提供完整报错栈和触发输入。" );
+                hints.add("先对照题目样例逐行比对输入解析与输出格式。" );
+            }
+        }
+
+        if (StringUtils.containsIgnoreCase(errorText, "expected")) {
+            hints.add("日志中出现 expected 字样，通常表示输出与标准答案在某处开始分叉。" );
+        }
+        if (StringUtils.containsAnyIgnoreCase(errorText, "null", "nullpointer")) {
+            hints.add("日志中出现 null 相关关键词，优先检查对象/集合初始化路径。" );
+        }
+        return hints;
+    }
+
+    private List<String> buildSampleHints(Question question) {
+        if (question == null || StringUtils.isBlank(question.getJudgeCase())) {
+            return new ArrayList<>();
+        }
+        try {
+            JSONArray array = JSONUtil.parseArray(question.getJudgeCase());
+            List<JudgeCase> judgeCases = JSONUtil.toList(array, JudgeCase.class);
+            if (CollUtil.isEmpty(judgeCases)) {
+                return new ArrayList<>();
+            }
+            List<String> hints = new ArrayList<>();
+            int max = Math.min(2, judgeCases.size());
+            for (int i = 0; i < max; i++) {
+                JudgeCase judgeCase = judgeCases.get(i);
+                hints.add(String.format("样例 %d 输入：%s", i + 1,
+                        StringUtils.defaultIfBlank(StringUtils.trimToNull(judgeCase.getInput()), "(空输入)")));
+                hints.add(String.format("样例 %d 期望输出：%s", i + 1,
+                        StringUtils.defaultIfBlank(StringUtils.trimToNull(judgeCase.getOutput()), "(空输出)")));
+            }
+            hints.add("重点核对：空格/换行格式、数字类型范围、是否多输出调试信息。" );
+            return hints;
+        } catch (Exception ignored) {
+            return new ArrayList<>();
+        }
     }
 
     /**

@@ -6,7 +6,6 @@ import com.baimao.oj.ai.agent.model.AgentState;
 import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.model.dto.AiChatSendRequest;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.ArrayList;
@@ -14,36 +13,33 @@ import java.util.List;
 
 public class PromptUtils {
 
-    public static String buildDecisionSystemPrompt(AgentState state) {
-        return """
-                You are running inside a backend-managed autonomous ReAct runtime.
-                The runtime executes a strict loop of Thought -> Action -> Observation.
-                You are not allowed to directly call tools yourself; instead, you must return a JSON decision that the backend will execute.
-
-                Reference assistant persona and boundaries:
-                %s
-
-                Ignore any response-format instructions contained in the reference persona for this step.
-                For this step, you MUST return JSON only and nothing else.
-
-                JSON schema:
-                {
-                  "thought": "1-2 concise sentences explaining the next step",
-                  "plan": ["step 1", "step 2"],
-                  "action": "tool" or "finish",
-                  "toolName": "required when action=tool",
-                  "toolInput": {},
-                  "finalAnswer": "optional fallback answer when action=finish"
-                }
-
-                Rules:
-                - Use at most one tool per step.
-                - Only choose a tool from the provided tool catalog.
-                - Prefer finishing as soon as you have enough evidence.
-                - Do not fabricate observations, judge results, or code behavior.
-                - Keep thought and plan concise because they will be shown in the execution trace.
-                """.formatted(StringUtils.defaultIfBlank(state.getRunContext().getBaseSystemPrompt(), "Follow safe, helpful, programming-focused behavior."));
-    }
+//    public static String buildDecisionSystemPrompt(AgentState state) {
+//        return """
+//                You are running inside a backend-managed autonomous ReAct runtime.
+//                The runtime executes a strict loop of Thought -> Action -> Observation.
+//                You are not allowed to directly call tools yourself; instead, you must return a JSON decision that the backend will execute.
+//
+//
+//                - Use at most one tool per step.
+//                - Only choose a tool from the provided tool catalog.
+//                - Prefer finishing as soon as you have enough evidence.
+//                - Do not fabricate observations, judge results, or code behavior.
+//                - Keep thought and plan concise because they will be shown in the execution trace.
+//
+//                Ignore any response-format instructions contained in the reference persona for this step.
+//                For this step, you MUST return JSON only and nothing else.
+//
+//                JSON schema:
+//                {
+//                  "thought": "1-2 concise sentences explaining the next step",
+//                  "plan": ["step 1", "step 2"],
+//                  "action": "tool" or "finish",
+//                  "toolName": "required when action=tool",
+//                  "toolInput": {},
+//                  "finalAnswer": "optional fallback answer when action=finish"
+//                }
+//                """.formatted(StringUtils.defaultIfBlank(state.getRunContext().getBaseSystemPrompt(), "Follow safe, helpful, programming-focused behavior."));
+//    }
 
     public static String buildDecisionUserPrompt(AgentState state, String parseError,AgentToolsManager agentToolsManager,Integer maxObservationChars) {
         AgentRunContext runContext = state.getRunContext();
@@ -62,7 +58,6 @@ public class PromptUtils {
                 %s
                 ```
                 - User request: %s
-
                 Available tools:
                 %s
 
@@ -73,10 +68,10 @@ public class PromptUtils {
                 Return JSON only.
                 """.formatted(
                 state.getCurrentStep(),
-                StringUtils.defaultString(runContext.getQuestion().getTitle(), ""),
+                StringUtils.defaultString(runContext.getQuestion().getTitle(), "N/A"),
                 trimForPrompt(runContext.getQuestion().getContent(), 2000),
                 StringUtils.defaultIfBlank(requestBody.getLanguage(), "unknown"),
-                StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), ""),
+                StringUtils.defaultIfBlank(requestBody.getLatestJudgeResult(), "N/A"),
                 StringUtils.defaultIfBlank(requestBody.getLanguage(), "text"),
                 trimForPrompt(requestBody.getUserCode(), 2000),
                 StringUtils.defaultString(requestBody.getMessage()),
@@ -88,11 +83,8 @@ public class PromptUtils {
 
     public static String buildFinalSystemPrompt(AgentState state) {
         return """
-                You now need to deliver the final answer for the user.
-
-                Reference assistant persona and boundaries:
                 %s
-
+                You now need to deliver the final answer for the user.
                 Ignore any previous response-format instructions in the reference persona.
                 For this final synthesis call, output markdown only.
                 Ground the answer in the collected observations and the current question/code context.
