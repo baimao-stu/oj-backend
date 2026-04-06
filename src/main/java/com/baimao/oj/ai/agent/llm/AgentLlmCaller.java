@@ -14,6 +14,11 @@ public interface AgentLlmCaller {
     String call(AgentRunContext runContext, String systemPrompt, String userPrompt);
 
     /**
+     * 同步调用模型并通过框架结构化输出直接映射为目标对象。
+     */
+    <T> T callForEntity(AgentRunContext runContext, String systemPrompt, String userPrompt, Class<T> entityType);
+
+    /**
      * 流式调用模型，并在增量内容产生时回调给上层。
      */
     String stream(AgentRunContext runContext, String systemPrompt, String userPrompt, Consumer<String> chunkConsumer);

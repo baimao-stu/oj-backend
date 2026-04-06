@@ -6,6 +6,7 @@ import com.baimao.oj.ai.agent.model.*;
 import com.baimao.oj.ai.agent.tools.AgentToolsManager;
 import com.baimao.oj.ai.model.vo.AiToolEventVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -22,6 +23,7 @@ import static com.baimao.oj.ai.service.Constant.EVENT_TOOL;
 /**
  * ReAct agent specialized for tool planning and execution.
  */
+@Slf4j
 public class ToolsAgent extends ReActAgent {
 
     private final int maxDecisionRetries;
@@ -111,17 +113,22 @@ public class ToolsAgent extends ReActAgent {
     private AgentDecision decideNextAction(AgentState state) {
         String parseError = null;
         for (int attempt = 1; attempt <= maxDecisionRetries; attempt++) {
-            String rawResponse = llmCaller.call(
+            AgentDecision decision = llmCaller.callForEntity(
                     state.getRunContext(),
                     state.getRunContext().getBaseSystemPrompt(),
-                    buildDecisionUserPrompt(state, parseError, agentToolsManager, maxObservationChars)
+                    buildDecisionUserPrompt(
+                                state,
+                                parseError,
+                                agentToolsManager,
+                                maxObservationChars
+                    ),
+                    AgentDecision.class
             );
             // LLM 的决策，如还需工具调用，则 decision 的 action=tool，否则为 finish
-            AgentDecision decision = parseDecision(rawResponse);
             if (isValidDecision(decision)) {
                 return decision;
             }
-            parseError = StringUtils.defaultIfBlank(rawResponse, "Model returned an empty response.");
+            parseError = "Schema validation failed.";
         }
         // 思考结果的降级，直接完成整个任务：如果多次尝试仍未得到有效决策isValidDecision(decision)。
         AgentDecision fallback = new AgentDecision();
@@ -129,26 +136,6 @@ public class ToolsAgent extends ReActAgent {
         fallback.setThought("The planner failed to produce a valid next-step decision, so the task will be wrapped up with the available evidence.");
         fallback.setFinalAnswer("");
         return fallback;
-    }
-
-    /**
-     * 解析AI返回的内容中包含的 JSON schema（System prompt中要求返回的格式）
-     * @param rawResponse
-     * @return
-     */
-    private AgentDecision parseDecision(String rawResponse) {
-        if (StringUtils.isBlank(rawResponse)) {
-            return null;
-        }
-        String normalized = extractJsonPayload(rawResponse);
-        if (StringUtils.isBlank(normalized)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(normalized, AgentDecision.class);
-        } catch (Exception ignore) {
-            return null;
-        }
     }
 
     private boolean isValidDecision(AgentDecision decision) {
@@ -250,26 +237,6 @@ public class ToolsAgent extends ReActAgent {
                 // Ignore transient SSE send failures here and let the outer request lifecycle handle them.
             }
         };
-    }
-
-    /**
-     * 从大语言模型 LLM 的原始返回结果（通常是 markdown）中提取出纯净的 JSON 字符串
-     * @param rawResponse
-     * @return
-     */
-    private String extractJsonPayload(String rawResponse) {
-        String normalized = StringUtils.trimToEmpty(rawResponse);
-        // 去除markdown的修饰
-        if (normalized.startsWith("```")) {
-            normalized = normalized.replaceFirst("^```(?:json)?\\s*", "");
-            normalized = normalized.replaceFirst("\\s*```\\s*$", "").trim();
-        }
-        int start = normalized.indexOf('{');
-        int end = normalized.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return normalized.substring(start, end + 1);
-        }
-        return normalized;
     }
 
     private List<String> copyPlan(List<String> rawPlan) {

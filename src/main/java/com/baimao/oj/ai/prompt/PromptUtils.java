@@ -13,35 +13,9 @@ import java.util.List;
 
 public class PromptUtils {
 
-//    public static String buildDecisionSystemPrompt(AgentState state) {
-//        return """
-//                You are running inside a backend-managed autonomous ReAct runtime.
-//                The runtime executes a strict loop of Thought -> Action -> Observation.
-//                You are not allowed to directly call tools yourself; instead, you must return a JSON decision that the backend will execute.
-//
-//
-//                - Use at most one tool per step.
-//                - Only choose a tool from the provided tool catalog.
-//                - Prefer finishing as soon as you have enough evidence.
-//                - Do not fabricate observations, judge results, or code behavior.
-//                - Keep thought and plan concise because they will be shown in the execution trace.
-//
-//                Ignore any response-format instructions contained in the reference persona for this step.
-//                For this step, you MUST return JSON only and nothing else.
-//
-//                JSON schema:
-//                {
-//                  "thought": "1-2 concise sentences explaining the next step",
-//                  "plan": ["step 1", "step 2"],
-//                  "action": "tool" or "finish",
-//                  "toolName": "required when action=tool",
-//                  "toolInput": {},
-//                  "finalAnswer": "optional fallback answer when action=finish"
-//                }
-//                """.formatted(StringUtils.defaultIfBlank(state.getRunContext().getBaseSystemPrompt(), "Follow safe, helpful, programming-focused behavior."));
-//    }
-
-    public static String buildDecisionUserPrompt(AgentState state, String parseError,AgentToolsManager agentToolsManager,Integer maxObservationChars) {
+    public static String buildDecisionUserPrompt(AgentState state, String parseError,
+                                                 AgentToolsManager agentToolsManager,
+                                                 Integer maxObservationChars) {
         AgentRunContext runContext = state.getRunContext();
         AiChatSendRequest requestBody = runContext.getRequestBody();
         return """
@@ -65,7 +39,6 @@ public class PromptUtils {
                 %s
 
                 %s
-                Return JSON only.
                 """.formatted(
                 state.getCurrentStep(),
                 StringUtils.defaultString(runContext.getQuestion().getTitle(), "N/A"),
@@ -77,7 +50,7 @@ public class PromptUtils {
                 StringUtils.defaultString(requestBody.getMessage()),
                 renderToolCatalog(agentToolsManager),
                 state.renderScratchpad(maxObservationChars),
-                StringUtils.isBlank(parseError) ? "" : "The previous response could not be parsed. Fix it and strictly follow the schema. Invalid response: " + trimForPrompt(parseError, 1200)
+                StringUtils.isBlank(parseError) ? "" : "The previous response could not be parsed into a valid decision. Please provide a clear next-step decision based on the current context."
         );
     }
 

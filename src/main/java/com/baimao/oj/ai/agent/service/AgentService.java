@@ -47,6 +47,11 @@ public class AgentService {
             }
 
             @Override
+            public <T> T callForEntity(AgentRunContext context, String systemPrompt, String userPrompt, Class<T> entityType) {
+                return callModelEntity(context, systemPrompt, userPrompt, entityType);
+            }
+
+            @Override
             public String stream(AgentRunContext context, String systemPrompt, String userPrompt,
                                  Consumer<String> chunkConsumer) {
                 return streamModel(context, systemPrompt, userPrompt, chunkConsumer);
@@ -71,7 +76,6 @@ public class AgentService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(runContext.getSessionId()))
                                     .build(),
-                            runContext.getSafeGuardAdvisor(),
                             new MyLoggerAdvisor()
                     );
             if (runContext.getSafeGuardAdvisor() != null) {
@@ -88,6 +92,31 @@ public class AgentService {
         }
     }
 
+    private <T> T callModelEntity(AgentRunContext runContext, String systemPrompt,
+                                  String userPrompt, Class<T> entityType) {
+        try {
+            var requestSpec = chatClientBuilder.build()
+                    .prompt()
+                    .advisors(
+                            MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
+                                    .conversationId(String.valueOf(runContext.getSessionId()))
+                                    .build(),
+                            new MyLoggerAdvisor()
+                    );
+            if (runContext.getSafeGuardAdvisor() != null) {
+                requestSpec = requestSpec.advisors(runContext.getSafeGuardAdvisor());
+            }
+            return requestSpec
+                    .system(systemPrompt)
+                    .user(userPrompt)
+                    .call()
+                    .entity(entityType);
+        } catch (Exception e) {
+            log.error("Autonomous agent model structured call failed", e);
+            return null;
+        }
+    }
+
     private String streamModel(AgentRunContext runContext, String systemPrompt, String userPrompt,
                                Consumer<String> chunkConsumer) {
         StringBuilder contentBuilder = new StringBuilder();
@@ -98,7 +127,6 @@ public class AgentService {
                             MessageChatMemoryAdvisor.builder(aiDatabaseChatMemory)
                                     .conversationId(String.valueOf(runContext.getSessionId()))
                                     .build(),
-                            runContext.getSafeGuardAdvisor(),
                             new MyLoggerAdvisor()
                     );
             if (runContext.getSafeGuardAdvisor() != null) {
