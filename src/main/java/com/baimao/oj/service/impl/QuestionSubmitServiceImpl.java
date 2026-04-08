@@ -25,6 +25,7 @@ import com.baimao.oj.model.entity.User;
 import com.baimao.oj.model.enums.QuestionSubmitLanguageEnum;
 import com.baimao.oj.model.enums.QuestionSubmitStatusEnum;
 import com.baimao.oj.model.vo.QuestionSubmitVO;
+import com.baimao.oj.service.ContestRankService;
 import com.baimao.oj.service.QuestionService;
 import com.baimao.oj.service.QuestionSubmitService;
 import com.baimao.oj.service.UserService;
@@ -61,6 +62,9 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     @Resource
     @Lazy
     private JudgeService judgeService;
+
+    @Resource
+    private ContestRankService contestRankService;
 
     /**
      * 题目提交
@@ -125,6 +129,9 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         if(!update){
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"题目更新失败");
         }
+
+        // 竞赛提交时增量刷新排行榜缓存（非竞赛提交会自动跳过）
+        contestRankService.updateRankOnJudgeResult(questionSubmitResponse);
 
         return questionSubmitResponse;
     }

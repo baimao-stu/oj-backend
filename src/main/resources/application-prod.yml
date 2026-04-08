@@ -14,6 +14,12 @@ spring:
     url: jdbc:mysql://120.76.250.225:3306/yuoj?characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: baimao
     password: sztu@2078
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:123456}
+      timeout: 3000ms
   ai:
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:sk-89fd0b23909d43809e5ffc3df4ca3445}

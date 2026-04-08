@@ -56,6 +56,9 @@ public class ContestController {
     @Resource
     private UserService userService;
 
+    @Resource
+    private ContestRankService contestRankService;
+
     // region 增删改查
 
     /**
@@ -400,6 +403,15 @@ public class ContestController {
         Long contestId = contestUserVOQueryRequest.getContestId();
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+
+        // 优先走 Redis 实时榜单
+        Page<ContestUserVO> cachePage = contestRankService.getRankPageFromCache(contestId, current, size);
+        if (cachePage != null) {
+            return ResultUtils.success(cachePage);
+        }
+
+        long detailQueryStart = System.currentTimeMillis();
+
         LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(Registrations::getContestId,contestId);
         //报名该比赛的用户id列表
@@ -412,72 +424,40 @@ public class ContestController {
         //报名该比赛的用户VO列表
         List<UserVO> userVOList = userService.getUserVO(userList);
 
-
-
         List<ContestUserVO> contestUserVOList = new ArrayList<>();
         for(int i = 0;i < userVOList.size();i ++) {
-            Map<Long,Long> questionIdACMilli = new HashMap<>();       //题目id与其在ac的情况下最短的消耗时间
-            Map<Long,String> questionIdJudgeMsg = new HashMap<>(); //题目id与其最后的判题状态（有ac以ac优先）
-            Map<Long, JudgeInfo> questionSubmitStatus = new HashMap<>(); //用户在这场比赛的提交记录情况（有ac以ac为准，没ac已最后一次提交为准）
+            Map<Long, JudgeInfo> questionSubmitStatus = new HashMap<>(); //用户在这场比赛的提交记录情况（同题以最后一次提交为准）
 
             ContestUserVO contestUserVO = new ContestUserVO();
             UserVO userVO = userVOList.get(i);
             //本次比赛该用户的所有提交记录
             List<QuestionSubmit> questionSubmits = questionSubmitService.getQuestionSubmitPageByCIdAndUId(contestId, userVO.getId());
             int acNum = 0;        //通过的题目数量
-            long allTime = 0l;  //消耗总时长
+            long allTime = 0L;  //消耗总时长
 
-            /** 1.首先过滤ac的判题结果 */
-            for(int j = 0;j < questionSubmits.size();j ++) {
-                QuestionSubmit questionSubmit = questionSubmits.get(j);
-                String judgeInfoStr = questionSubmit.getJudgeInfo();
-                JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
-                if(judgeInfo == null) continue;
-                Long questionId = questionSubmit.getQuestionId();
-                Long time = judgeInfo.getTime();
-                String judgeMsg = judgeInfo.getMessage();
-                //ac才记录时间
-                if("Accepted".equals(judgeMsg)) {
-                    if(questionIdACMilli.get(questionId) != null) {
-                        Long oldTime = questionIdACMilli.get(questionId);
-                        if(time < oldTime) {
-                            questionIdACMilli.put(questionId,time);
-                            allTime -= oldTime - time;
-                            questionSubmitStatus.put(questionId,judgeInfo);
-                        }
-                    }else {
-                        questionIdACMilli.put(questionId,time);
-                        allTime += time;
-                        questionSubmitStatus.put(questionId,judgeInfo);
-                        acNum ++;
-                    }
-                    questionIdJudgeMsg.put(questionId,judgeMsg);
+            // 提交记录按提交时间倒序时，首次出现的题目即最后一次提交结果
+            for (QuestionSubmit questionSubmit : questionSubmits) {
+                JudgeInfo judgeInfo = JSONUtil.toBean(questionSubmit.getJudgeInfo(), JudgeInfo.class);
+                if (judgeInfo == null || questionSubmit.getQuestionId() == null) {
+                    continue;
                 }
+                questionSubmitStatus.putIfAbsent(questionSubmit.getQuestionId(), judgeInfo);
             }
-            /** 2.过滤非ac的判题结果 */
-            for(int j = 0;j < questionSubmits.size();j ++) {
-                QuestionSubmit questionSubmit = questionSubmits.get(j);
-                String judgeInfoStr = questionSubmit.getJudgeInfo();
-                JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
-                if(judgeInfo == null) continue;
-                Long questionId = questionSubmit.getQuestionId();
-                String judgeMsg = judgeInfo.getMessage();
-                //非ac记录判题结果
-                if(!"Accepted".equals(judgeMsg)) {
-                    /**
-                     * 1.非ac的情况，如同个题目还有ac的情况，以ac的情况为准
-                     * 2.非ac的情况，由于提交记录已经按提交时间倒序排序过，以最后提交的一种情况为准
-                     */
-                    if(questionIdACMilli.get(questionId) == null && questionIdJudgeMsg.get(questionId) == null) {
-                        questionIdJudgeMsg.put(questionId,judgeMsg);
-                        questionSubmitStatus.put(questionId,judgeInfo);
-                    }
+
+            // 基于“每题最后一次提交结果”统计 AC 数和总耗时
+            for (JudgeInfo judgeInfo : questionSubmitStatus.values()) {
+                if (judgeInfo == null) {
+                    continue;
+                }
+                if ("Accepted".equals(judgeInfo.getMessage())) {
+                    acNum++;
+                    long time = judgeInfo.getTime() == null ? 0L : Math.max(judgeInfo.getTime(), 0L);
+                    allTime += time;
                 }
             }
 
             log.info("用户id:" + userVO.getId() + "在比赛id:" + contestId + "的提交情况");
-            log.info("题目id与时间：" + questionIdACMilli + " " + allTime);
-            log.info("题目id与判题结果：" + questionIdJudgeMsg);
+            log.info("题目最后提交结果：" + questionSubmitStatus + "，总耗时：" + allTime);
 
             contestUserVO.setUserVO(userVO);        //用户信息
             contestUserVO.setAllTime(allTime);  //总消耗时间
@@ -489,8 +469,24 @@ public class ContestController {
         }
 
         Collections.sort(contestUserVOList);
+
+        int fromIndex = (int) Math.max((current - 1) * size, 0);
+        int toIndex = (int) Math.min(fromIndex + size, contestUserVOList.size());
+        List<ContestUserVO> pageRecords = fromIndex >= contestUserVOList.size()
+            ? Collections.emptyList()
+            : contestUserVOList.subList(fromIndex, toIndex);
+
         Page<ContestUserVO> contestUserVOPage = new Page<>(current,size);
-        contestUserVOPage.setRecords(contestUserVOList);
+        contestUserVOPage.setTotal(contestUserVOList.size());
+        contestUserVOPage.setRecords(pageRecords);
+
+        double detailQueryCostMs = (System.currentTimeMillis() - detailQueryStart);
+        log.info("query rank from DB, contestId={}, page={}, size={}, userCount={}, detailQueryCostMs={}",
+                contestId, current, size, userIdList.size(), detailQueryCostMs);
+
+        // 缓存预热，后续请求直接读 Redis
+        contestRankService.warmupRankCache(contestId, contestUserVOList);
+
         return ResultUtils.success(contestUserVOPage);
     }
 
