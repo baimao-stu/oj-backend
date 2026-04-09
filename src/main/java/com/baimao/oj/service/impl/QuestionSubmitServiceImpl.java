@@ -32,10 +32,13 @@ import com.baimao.oj.service.UserService;
 import com.baimao.oj.utils.SqlUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import jakarta.annotation.Resource;
 import java.beans.Transient;
@@ -50,6 +53,7 @@ import java.util.stream.Collectors;
  *
  */
 @Service
+@Slf4j
 public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper, QuestionSubmit>
     implements QuestionSubmitService{
     
@@ -131,7 +135,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         }
 
         // 竞赛提交时增量刷新排行榜缓存（非竞赛提交会自动跳过）
-        contestRankService.updateRankOnJudgeResult(questionSubmitResponse);
+        refreshContestRankAfterCommit(questionSubmitResponse);
 
         return questionSubmitResponse;
     }
@@ -173,6 +177,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         /** 相应的判题结果 */
         queryWrapper.like(ObjectUtils.isNotEmpty(judgeStatus), "judgeInfo", judgeStatus);
 
+        // 根据前端的逻辑，按提交时间降序排序
         queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
         return queryWrapper;
@@ -236,6 +241,37 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         queryWrapper.eq(QuestionSubmit::getUserId,userId);
         queryWrapper.orderByDesc(QuestionSubmit::getCreateTime);
         return this.list(queryWrapper);
+    }
+
+    /**
+     * 排行榜缓存刷新放到事务提交后执行，避免数据库回滚时 Redis 已被提前更新。
+     */
+    private void refreshContestRankAfterCommit(QuestionSubmit questionSubmitResponse) {
+        if (questionSubmitResponse == null || questionSubmitResponse.getContestId() == null || questionSubmitResponse.getContestId() <= 0) {
+            return;
+        }
+        // 非事务上下文直接执行，兼容后续可能的复用场景。
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            safeUpdateContestRank(questionSubmitResponse);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                safeUpdateContestRank(questionSubmitResponse);
+            }
+        });
+    }
+
+    /**
+     * 刷新缓存失败不影响提交流程，避免 Redis 短暂异常把主业务链路打断。
+     */
+    private void safeUpdateContestRank(QuestionSubmit questionSubmitResponse) {
+        try {
+            contestRankService.updateRankOnJudgeResult(questionSubmitResponse);
+        } catch (Exception e) {
+            log.warn("refresh contest rank cache after commit failed, submitId={}", questionSubmitResponse.getId(), e);
+        }
     }
 
 }

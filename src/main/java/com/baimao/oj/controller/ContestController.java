@@ -23,6 +23,8 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Description;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -140,6 +142,8 @@ public class ContestController {
             throw new BusinessException(ErrorCode.OPERATION_ERROR);
         }
 
+        clearContestRankCacheAfterCommit(id);
+
         return ResultUtils.success(remove);
     }
 
@@ -168,6 +172,9 @@ public class ContestController {
         Contest oldContest = contestService.getById(id);
         ThrowUtils.throwIf(oldContest == null, ErrorCode.NOT_FOUND_ERROR);
         boolean result = contestService.updateById(contest);
+        if (result) {
+            safeClearContestRankCache(id);
+        }
         return ResultUtils.success(result);
     }
 
@@ -299,6 +306,9 @@ public class ContestController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = contestService.editById(contest,contestEditRequest.getQuestionIdList());
+        if (result) {
+            safeClearContestRankCache(id);
+        }
         return ResultUtils.success(result);
     }
 
@@ -409,7 +419,6 @@ public class ContestController {
         if (cachePage != null) {
             return ResultUtils.success(cachePage);
         }
-
         long detailQueryStart = System.currentTimeMillis();
 
         LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
@@ -426,8 +435,11 @@ public class ContestController {
 
         List<ContestUserVO> contestUserVOList = new ArrayList<>();
         for(int i = 0;i < userVOList.size();i ++) {
-            Map<Long, JudgeInfo> questionSubmitStatus = new HashMap<>(); //用户在这场比赛的提交记录情况（同题以最后一次提交为准）
+            //用户在这场比赛的提交记录情况（这场比赛的每道题都可能有多次提交，同题以最后一次提交为准）
+            Map<Long, JudgeInfo> questionSubmitStatus = new HashMap<>();
 
+            // 记录每道题最后一次提交的主键和提交时间，供 Redis 增量更新时判断新旧。
+            Map<Long, ContestUserVO.QuestionLastSubmitMeta> questionLastSubmitMeta = new HashMap<>();
             ContestUserVO contestUserVO = new ContestUserVO();
             UserVO userVO = userVOList.get(i);
             //本次比赛该用户的所有提交记录
@@ -441,7 +453,15 @@ public class ContestController {
                 if (judgeInfo == null || questionSubmit.getQuestionId() == null) {
                     continue;
                 }
-                questionSubmitStatus.putIfAbsent(questionSubmit.getQuestionId(), judgeInfo);
+                // 提交记录已按 createTime 倒序，同一道题的提交记录只保留首条即可。
+                if (questionSubmitStatus.containsKey(questionSubmit.getQuestionId())) {
+                    continue;
+                }
+                questionSubmitStatus.put(questionSubmit.getQuestionId(), judgeInfo);
+                ContestUserVO.QuestionLastSubmitMeta meta = new ContestUserVO.QuestionLastSubmitMeta();
+                meta.setSubmitId(questionSubmit.getId());
+                meta.setSubmitTime(questionSubmit.getCreateTime() == null ? 0L : questionSubmit.getCreateTime().getTime());
+                questionLastSubmitMeta.put(questionSubmit.getQuestionId(), meta);
             }
 
             // 基于“每题最后一次提交结果”统计 AC 数和总耗时
@@ -463,6 +483,7 @@ public class ContestController {
             contestUserVO.setAllTime(allTime);  //总消耗时间
             contestUserVO.setAcNum(acNum);          //ac的题目数
             contestUserVO.setQuestionSubmitStatus(questionSubmitStatus);    //做题情况
+            contestUserVO.setQuestionLastSubmitMeta(questionLastSubmitMeta);
             contestUserVOList.add(contestUserVO);
 
             log.info(contestUserVO.toString());
@@ -488,6 +509,43 @@ public class ContestController {
         contestRankService.warmupRankCache(contestId, contestUserVOList);
 
         return ResultUtils.success(contestUserVOPage);
+    }
+
+    /**
+     * 删除比赛时等事务提交后再清缓存，避免数据库回滚导致缓存被误删。
+     */
+    private void clearContestRankCacheAfterCommit(Long contestId) {
+        if (contestId == null || contestId <= 0) {
+            return;
+        }
+        /**
+         *  当前线程是否 “激活了事务同步机制”， 只要是在 @Transactional 方法执行过程中（方法还没结束），这个返回值一定是 true
+         */
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            safeClearContestRankCache(contestId);
+            return;
+        }
+        /**
+         * Spring 的事务上下文绑定在当前线程（ThreadLocal）上
+         * 注册的 TransactionSynchronization 回调，也只会绑定到当前正在执行的这个事务上
+         */
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                safeClearContestRankCache(contestId);
+            }
+        });
+    }
+
+    /**
+     * 缓存清理失败只记录日志，避免影响控制器返回。
+     */
+    private void safeClearContestRankCache(Long contestId) {
+        try {
+            contestRankService.clearContestRankCache(contestId);
+        } catch (Exception e) {
+            log.warn("clear contest rank cache failed, contestId={}", contestId, e);
+        }
     }
 
     /**
