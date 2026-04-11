@@ -120,9 +120,9 @@ create table if not exists registrations
 
 -- 比赛排行榜快照表
 -- 设计说明：
--- 1. 该表作为排行榜的唯一真源，按“比赛 + 用户”存储聚合结果。
--- 2. Redis 只缓存分页查询结果，不再承担排行榜真源职责。
--- 3. questionStatus 字段保存每道题最后一次提交的判题结果，便于直接回填排行榜详情。
+-- 1. Redis ZSet + Hash 承担实时榜单真源职责。
+-- 2. 该表只保存按“比赛 + 用户”聚合后的异步快照，用于恢复和审计。
+-- 3. questionStatus 字段保存每道题最后一次提交的判题结果，便于快照回填。
 create table if not exists contest_rank_snapshot
 (
     id             bigint auto_increment comment 'id' primary key,

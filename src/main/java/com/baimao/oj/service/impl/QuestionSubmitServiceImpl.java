@@ -46,7 +46,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -268,10 +267,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      */
     private void safeUpdateContestRank(QuestionSubmit questionSubmitResponse) {
         try {
-            contestRankService.refreshUserRankSnapshot(
-                    questionSubmitResponse.getContestId(),
-                    questionSubmitResponse.getUserId()
-            );
+            contestRankService.refreshUserRankSnapshot(questionSubmitResponse);
         } catch (Exception e) {
             log.warn("refresh contest rank snapshot after commit failed, submitId={}", questionSubmitResponse.getId(), e);
         }
