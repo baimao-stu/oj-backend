@@ -78,35 +78,35 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
      * @return
      */
     @Override
-    @Transactional  //有外部调用，需要事务
+    @Transactional  // 有外部调用，需要事务
     public QuestionSubmit doQuestionSubmit(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
-        //1. 校验编程语言是否合理
+        // 1. 校验编程语言是否合理
         String language = questionSubmitAddRequest.getLanguage();
         QuestionSubmitLanguageEnum languageEnum = QuestionSubmitLanguageEnum.getEnumByValue(language);
         if(languageEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"编程语言错误");
         }
 
-        //2. 判断实体是否存在，根据类别获取实体
+        // 2. 判断题目是否存在
         Long questionId = questionSubmitAddRequest.getQuestionId();
         Question question = questionService.getById(questionId);
         if (question == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
-        //3. 是否已题目提交
+        // 3. 构造提交记录
         long userId = loginUser.getId();
         QuestionSubmit questionSubmit = new QuestionSubmit();
         questionSubmit.setUserId(userId);
         questionSubmit.setQuestionId(questionId);
         questionSubmit.setCode(questionSubmitAddRequest.getCode());
         questionSubmit.setLanguage(questionSubmitAddRequest.getLanguage());
-        /** 如果为比赛情况下提交，设置比赛id */
+        /** 如果为比赛场景下提交，设置比赛 id */
         Long contestId = questionSubmitAddRequest.getContestId();
         if(ObjectUtils.isNotEmpty(contestId)) {
             questionSubmit.setContestId(contestId);
         }
 
-        //4. 设置初始状态
+        // 4. 设置初始状态
         questionSubmit.setStatus(QuestionSubmitStatusEnum.WAITING.getValue());
         questionSubmit.setJudgeInfo("{}");
         boolean save = this.save(questionSubmit);
@@ -115,7 +115,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         }
 
         Long questionSubmitId = questionSubmit.getId();
-        /**4. 异步执行判题服务 */
+        /** 4. 异步执行判题服务 */
 //        CompletableFuture.runAsync(() -> {
 //            judgeService.doJudge(questionSubmitId);
 //        });
@@ -134,7 +134,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"题目更新失败");
         }
 
-        // 竞赛提交时增量刷新排行榜缓存（非竞赛提交会自动跳过）
+        // 提交成功后，事务提交后再刷新 Redis 排行缓存
         refreshContestRankAfterCommit(questionSubmitResponse);
 
         return questionSubmitResponse;
@@ -142,7 +142,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
 
 
     @Override
-    @Transactional  //有外部调用，需要事务
+    @Transactional  // 有外部调用，需要事务
     public QuestionSubmitVO doQuestionSubmitVO(QuestionSubmitAddRequest questionSubmitAddRequest, User loginUser) {
         QuestionSubmit questionSubmit = doQuestionSubmit(questionSubmitAddRequest, loginUser);
         QuestionSubmitVO questionSubmitVO = getQuestionSubmitVO(questionSubmit, loginUser);
@@ -150,7 +150,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     }
 
     /**
-     * 获取查询包装类（用户可能根据哪些字段查询，根据前端传来的查询对象生成QueryWrapper类）
+     * 获取查询包装类（用户可能根据某些字段查询，根据前端传来的查询对象生成 QueryWrapper）
      *
      * @param questionSubmitQueryRequest
      * @return
@@ -169,12 +169,12 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         String sortOrder = questionSubmitQueryRequest.getSortOrder();
         String judgeStatus = questionSubmitQueryRequest.getJudgeStatus();
 
-        //拼接查询条件
+        // 拼接查询条件
         queryWrapper.eq(StringUtils.isNotBlank(language), "language", language);
         queryWrapper.eq(QuestionSubmitStatusEnum.getEnumByValue(status) != null, "status", status);
         queryWrapper.eq(ObjectUtils.isNotEmpty(questionId), "questionId", questionId);
         queryWrapper.eq(ObjectUtils.isNotEmpty(userId), "userId", userId);
-        /** 相应的判题结果 */
+        /** 对应的判题结果 */
         queryWrapper.like(ObjectUtils.isNotEmpty(judgeStatus), "judgeInfo", judgeStatus);
 
         // 根据前端的逻辑，按提交时间降序排序
@@ -184,16 +184,16 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     }
 
     /**
-     * 根据QuestionSubmit转换为问题展示信息（QuestionSubmitVO）【脱敏】
+     * 根据 QuestionSubmit 转换为题目提交展示信息（QuestionSubmitVO）【脱敏】
      *
      * @param questionSubmit
-     * @param submitUser
+     * @param loginUser
      * @return
      */
     @Override
     public QuestionSubmitVO getQuestionSubmitVO(QuestionSubmit questionSubmit, User loginUser) {
         QuestionSubmitVO questionSubmitVO = QuestionSubmitVO.objToVo(questionSubmit);
-        /**脱敏：仅本人和管理员可以看见自己（提交的userId和登陆用户的Id相同）提交的代码（答案）*/
+        /** 脱敏：仅本人和管理员可以查看提交的代码（答案） */
         long loginUserId = loginUser.getId();
         if(loginUserId != questionSubmit.getUserId() && !userService.isAdmin(loginUser)){
             questionSubmitVO.setCode(null);
@@ -211,7 +211,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     }
 
     /**
-     * 把分页查询的题目提交列表QuestionSubmit列表转为QuestionSubmitVO列表，即上面方法的循环
+     * 将分页查询的题目提交列表 QuestionSubmit 转为 QuestionSubmitVO 列表，即上面方法的循环
      *
      * @param questionSubmitPage
      * @return
@@ -224,9 +224,9 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
         if (CollUtil.isEmpty(questionSubmitList)) {
             return questionSubmitVOPage;
         }
-        // 1. 获取所有问题提交的用户信息
+        // 1. 获取所有题目提交的用户信息
         
-        // 2. 填充信息，QuestionSubmit转换为QuestionSubmitVO
+        // 2. 填充信息，将 QuestionSubmit 转换为 QuestionSubmitVO
         List<QuestionSubmitVO> questionSubmitVOList = questionSubmitList.stream().map(
                 questionSubmit -> getQuestionSubmitVO(questionSubmit, loginUser)).collect(Collectors.toList());
         questionSubmitVOPage.setRecords(questionSubmitVOList);
@@ -264,13 +264,16 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     }
 
     /**
-     * 刷新缓存失败不影响提交流程，避免 Redis 短暂异常把主业务链路打断。
+        * 刷新缓存失败不影响提交流程，避免 Redis 短暂异常把主业务链路打断。
      */
     private void safeUpdateContestRank(QuestionSubmit questionSubmitResponse) {
         try {
-            contestRankService.updateRankOnJudgeResult(questionSubmitResponse);
+            contestRankService.refreshUserRankSnapshot(
+                    questionSubmitResponse.getContestId(),
+                    questionSubmitResponse.getUserId()
+            );
         } catch (Exception e) {
-            log.warn("refresh contest rank cache after commit failed, submitId={}", questionSubmitResponse.getId(), e);
+            log.warn("refresh contest rank snapshot after commit failed, submitId={}", questionSubmitResponse.getId(), e);
         }
     }
 

@@ -1,33 +1,41 @@
 package com.baimao.oj.service;
 
-import com.baimao.oj.model.entity.QuestionSubmit;
 import com.baimao.oj.model.vo.ContestUserVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
-import java.util.List;
-
 /**
- * 竞赛实时排行榜服务
+ * 比赛排行榜服务。
+ *
+ * 新设计中：
+ * 1. MySQL 快照表负责保存排行榜真源数据。
+ * 2. Redis 只缓存分页结果，不再做实时榜增量计算。
  */
 public interface ContestRankService {
 
     /**
-     * 判题完成后，增量更新比赛排行榜缓存
+     * 分页查询比赛排行榜。
      */
-    void updateRankOnJudgeResult(QuestionSubmit questionSubmit);
+    Page<ContestUserVO> listContestRankPage(Long contestId, long current, long size);
 
     /**
-     * 从 Redis 读取排行榜分页，未命中时返回 null
+     * 在报名成功后初始化该用户的排行榜快照。
      */
-    Page<ContestUserVO> getRankPageFromCache(Long contestId, long current, long size);
+    void initUserRankSnapshot(Long contestId, Long userId);
 
     /**
-     * 使用数据库计算结果回填排行榜缓存
+     * 在判题完成后重算该用户的排行榜快照。
      */
-    void warmupRankCache(Long contestId, List<ContestUserVO> contestUserVOList);
+    void refreshUserRankSnapshot(Long contestId, Long userId);
 
     /**
-     * 清理指定比赛的排行榜缓存
+     * 清理指定比赛的 Redis 分页缓存。
      */
     void clearContestRankCache(Long contestId);
+
+    /**
+     * 删除指定比赛的排行榜数据。
+     *
+     * 会同时删除 MySQL 快照和 Redis 缓存。
+     */
+    void removeContestRankData(Long contestId);
 }

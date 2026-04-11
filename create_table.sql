@@ -118,6 +118,27 @@ create table if not exists registrations
     index idx_userId (userId)
 ) comment '用户竞赛报名表' collate = utf8mb4_unicode_ci;
 
+-- 比赛排行榜快照表
+-- 设计说明：
+-- 1. 该表作为排行榜的唯一真源，按“比赛 + 用户”存储聚合结果。
+-- 2. Redis 只缓存分页查询结果，不再承担排行榜真源职责。
+-- 3. questionStatus 字段保存每道题最后一次提交的判题结果，便于直接回填排行榜详情。
+create table if not exists contest_rank_snapshot
+(
+    id             bigint auto_increment comment 'id' primary key,
+    contestId      bigint                             not null comment '比赛 id',
+    userId         bigint                             not null comment '用户 id',
+    acceptedNum    int      default 0                 not null comment '已通过题目数',
+    totalTime      bigint   default 0                 not null comment '总耗时(ms)',
+    questionStatus text                               null comment '按题目聚合后的最后一次判题结果(JSON)',
+    snapshotTime   datetime default CURRENT_TIMESTAMP not null comment '快照刷新时间',
+    createTime     datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime     datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete       tinyint  default 0                 not null comment '是否删除',
+    unique key uk_contest_user (contestId, userId),
+    index idx_contest_rank (contestId, acceptedNum, totalTime, userId)
+) comment '比赛排行榜快照表' collate = utf8mb4_unicode_ci;
+
 -- AI 会话表
 create table if not exists ai_chat_session
 (
@@ -431,4 +452,3 @@ CREATE TABLE `ai_violation_log`  (
   INDEX `idx_userId`(`userId`) USING BTREE,
   INDEX `idx_ruleType`(`ruleType`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 违规日志' ROW_FORMAT = Dynamic;
-

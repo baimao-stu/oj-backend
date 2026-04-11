@@ -3,28 +3,28 @@ package com.baimao.oj.service.impl;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
+import com.baimao.oj.mapper.ContestRankSnapshotMapper;
+import com.baimao.oj.model.entity.ContestRankSnapshot;
 import com.baimao.oj.model.entity.QuestionSubmit;
+import com.baimao.oj.model.entity.Registrations;
 import com.baimao.oj.model.entity.User;
 import com.baimao.oj.model.vo.ContestUserVO;
 import com.baimao.oj.model.vo.UserVO;
 import com.baimao.oj.service.ContestRankService;
+import com.baimao.oj.service.QuestionSubmitService;
+import com.baimao.oj.service.RegistrationsService;
 import com.baimao.oj.service.UserService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.jetbrains.annotations.NotNull;
-import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.core.RedisCallback;
-import org.springframework.data.redis.core.RedisOperations;
-import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.data.redis.core.script.RedisScript;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,310 +34,128 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 基于 Redis 的竞赛实时排行榜服务。
+ * 比赛排行榜服务实现。
  *
- * 设计目标：
- * 1. 写路径（判题完成后）只做“增量更新”，避免每次查榜全量扫描提交记录。
- * 2. 读路径（排行榜分页）优先读 Redis，满足高并发下的低延迟查询。
- * 3. 保留缓存预热能力，支持从数据库计算结果回填，便于冷启动和故障恢复。
- *
- * 关键数据结构：
- * 1. ZSET：总榜，member=userId，score=编码后的排序分值。
- * 2. HASH：用户聚合明细（acNum、totalTime、detail/statusMap）。
- *    其中 detail/statusMap 为“题号 -> 最后一次提交结果”的 JSON。
- * 3. STRING：提交事件去重标记，避免重复消费导致分数重复累计。
+ * 重构后的设计原则：
+ * 1. MySQL 快照表负责保存排行榜真源，所有排行计算结果都先落库。
+ * 2. Redis 只缓存分页查询结果，写入时只做缓存失效，不再维护复杂的实时榜结构。
+ * 3. 当快照缺失或数量与报名人数不一致时，按比赛维度做一次全量重建。
  */
 @Service
 @Slf4j
 public class ContestRankServiceImpl implements ContestRankService {
 
-    /** 排行总榜 ZSET，member=userId，score=编码后的排名分 */
-    private static final String RANK_KEY_PREFIX = "contest:rank:";
-    /** 用户在某场比赛下的聚合明细 HASH（acNum、totalTime、detail/statusMap） */
-    private static final String DETAIL_KEY_PREFIX = "contest:rank:detail:";
-    /** 比赛排行榜明细 key 索引（记录该比赛下所有详情缓存的 Key） */
-    private static final String DETAIL_INDEX_KEY_PREFIX = "contest:rank:detail:index:";
-    /** 单用户排行榜更新锁 */
-    private static final String USER_LOCK_KEY_PREFIX = "contest:rank:lock:user:";
-    /** 榜单重建锁 */
-    private static final String REBUILD_LOCK_KEY_PREFIX = "contest:rank:lock:rebuild:";
+    /**
+     * 分页缓存 key，格式：contest:rank:page:{contestId}:{current}:{size}
+     */
+    private static final String PAGE_CACHE_KEY_PREFIX = "contest:rank:page:";
 
-    /** 分值基数：保证 AC 数优先级远高于总耗时 */
-    private static final long SCORE_BASE = 1_000_000_000_000L;
-    /** 榜单缓存 TTL */
-    private static final Duration CACHE_TTL = Duration.ofHours(24);
-    /** 单用户更新锁 TTL */
-    private static final Duration USER_LOCK_TTL = Duration.ofSeconds(10);
-    /** 榜单重建锁 TTL */
-    private static final Duration REBUILD_LOCK_TTL = Duration.ofMinutes(2);
-    /** 锁竞争重试次数 */
-    private static final int LOCK_RETRY_TIMES = 20;
-    /** 锁竞争重试间隔 */
-    private static final long LOCK_RETRY_INTERVAL_MS = 50L;
+    /**
+     * 每场比赛对应的分页缓存索引，用于批量删除缓存。
+     */
+    private static final String PAGE_CACHE_INDEX_KEY_PREFIX = "contest:rank:page:index:";
 
-    private static final RedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            Long.class
-    );
+    /**
+     * 排行榜分页缓存过期时间。
+     */
+    private static final Duration PAGE_CACHE_TTL = Duration.ofMinutes(10);
+
+    @Resource
+    private ContestRankSnapshotMapper contestRankSnapshotMapper;
+
+    @Resource
+    private QuestionSubmitService questionSubmitService;
+
+    @Resource
+    private RegistrationsService registrationsService;
+
+    @Resource
+    private UserService userService;
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
     @Resource
-    private UserService userService;
+    private ObjectMapper objectMapper;
 
     @Override
-    public void updateRankOnJudgeResult(QuestionSubmit questionSubmit) {
-        if (questionSubmit == null || questionSubmit.getContestId() == null || questionSubmit.getContestId() <= 0) {
-            return;
-        }
-        Long submitId = questionSubmit.getId();
-        if (submitId == null || questionSubmit.getUserId() == null || questionSubmit.getQuestionId() == null) {
-            return;
-        }
-        JudgeInfo currentJudgeInfo = parseJudgeInfo(questionSubmit.getJudgeInfo());
-        if (currentJudgeInfo == null) {
-            return;
-        }
-
-        Long contestId = questionSubmit.getContestId();
-        Long userId = questionSubmit.getUserId();
-        Long questionId = questionSubmit.getQuestionId();
-        String detailKey = buildDetailKey(contestId, userId);
-        String rankKey = buildRankKey(contestId);
-
-        try {
-            // 榜单重建期间不直接做增量更新，避免新旧数据交叉写入。
-            if (!waitForNoRebuild(contestId)) {
-                log.warn("skip rank cache update because rebuild lock is busy, contestId={}, submitId={}", contestId, submitId);
-                // 重建锁获取失败（已有进程在重建排行榜），删除排行榜缓存
-                safeClearContestRankCache(contestId);
-                return;
-            }
-
-            /** ------- 当前没有在重建榜单，可以更新榜单 --------- */
-
-            // 锁粒度控制在“比赛 + 用户”，既能避免并发覆盖，又不会把整场比赛串行化。
-            String lockKey = buildUserLockKey(contestId, userId);   // TODO key 是否应该将 userId 改成 requestId ？
-            String lockValue = UUID.randomUUID().toString();
-            if (!tryAcquireLock(lockKey, lockValue, USER_LOCK_TTL, LOCK_RETRY_TIMES)) {
-                log.warn("acquire rank update lock failed, contestId={}, userId={}, submitId={}", contestId, userId, submitId);
-                safeClearContestRankCache(contestId);
-                return;
-            }
-
-            /** ------- 抢到分布式锁（用户锁）的线程可以更新榜单 --------- */
-            try {
-                Map<Object, Object> detail = stringRedisTemplate.opsForHash().entries(detailKey);
-                Map<Long, JudgeInfo> statusMap = parseStatusMap(detail.get("detail"));
-                Map<Long, ContestUserVO.QuestionLastSubmitMeta> submitMetaMap = parseSubmitMetaMap(detail.get("submitMeta"));
-
-                ContestUserVO.QuestionLastSubmitMeta currentMeta = buildSubmitMeta(questionSubmit); // 当前提交
-                ContestUserVO.QuestionLastSubmitMeta existingMeta = submitMetaMap.get(questionId);  // 与当前是同一个题目的已有提交
-                // 只接受“更新的那次提交”，避免旧提交晚判完把新结果覆盖掉。
-                if (!shouldAcceptUpdate(existingMeta, currentMeta)) {
-                    log.info("skip stale rank update, contestId={}, userId={}, questionId={}, submitId={}",
-                            contestId, userId, questionId, submitId);
-                    refreshCacheTtl(contestId, rankKey, detailKey);
-                    return;
-                }
-
-                /** ------- 当前的提交是更新的一 --------- */
-                statusMap.put(questionId, currentJudgeInfo);
-                submitMetaMap.put(questionId, currentMeta);
-
-                RankMetrics rankMetrics = calculateRankMetrics(statusMap);
-                int acNum = rankMetrics.acNum;
-                long totalTime = rankMetrics.totalTime;
-
-                Map<String, String> detailToSave = new HashMap<>();
-                detailToSave.put("acNum", String.valueOf(acNum));
-                detailToSave.put("totalTime", String.valueOf(totalTime));
-                detailToSave.put("detail", toStatusMapJson(statusMap));
-                detailToSave.put("submitMeta", toSubmitMetaJson(submitMetaMap));
-                detailToSave.put("updatedAt", String.valueOf(System.currentTimeMillis()));
-                stringRedisTemplate.opsForHash().putAll(detailKey, detailToSave);
-
-                // 写完明细后再更新总榜分值，保证分页查询拿到的聚合字段和分值尽量一致。
-                double score = buildScore(acNum, totalTime);
-                stringRedisTemplate.opsForZSet().add(rankKey, String.valueOf(userId), score);
-                registerDetailKey(contestId, detailKey);
-                refreshCacheTtl(contestId, rankKey, detailKey);
-
-                log.info("update rank on judge result, contestId={}, submitId={}, userId={}, questionId={}, score={}",
-                        contestId, submitId, userId, questionId, score);
-            } finally {
-                /** 释放用户锁 */
-                releaseLock(lockKey, lockValue);
-            }
-        } catch (Exception e) {
-            log.error("update rank cache failed, contestId={}, submitId={}", contestId, submitId, e);
-            safeClearContestRankCache(contestId);
-        }
-    }
-
-    @Override
-    public Page<ContestUserVO> getRankPageFromCache(Long contestId, long current, long size) {
+    public Page<ContestUserVO> listContestRankPage(Long contestId, long current, long size) {
         if (contestId == null || contestId <= 0 || current <= 0 || size <= 0) {
-            return null;
-        }
-        try {
-            // 榜单重建期间直接回退数据库，避免读到半成品缓存。
-            if (isRebuilding(contestId)) {
-                return null;
-            }
-
-            long detailQueryStart = System.currentTimeMillis();
-            String rankKey = buildRankKey(contestId);
-
-            // zCard 为空或为 0，说明当前比赛榜单缓存尚未建立
-            Long total = stringRedisTemplate.opsForZSet().zCard(rankKey);
-            if (total == null || total <= 0) {
-                return null;
-            }
-
-            // 计算分页区间，当前页从 1 开始
-            long start = (current - 1) * size;
-            long end = start + size - 1;
-            // 反向读取：score 越大排名越靠前
-            Set<String> userIdSet = stringRedisTemplate.opsForZSet().reverseRange(rankKey, start, end);
-            if (userIdSet == null || userIdSet.isEmpty()) {
-                Page<ContestUserVO> emptyPage = new Page<>(current, size, total);
-                emptyPage.setRecords(Collections.emptyList());
-                return emptyPage;
-            }
-
-            List<Long> userIdList = userIdSet.stream().map(Long::valueOf).collect(Collectors.toList());
-            Map<Long, UserVO> userVOMap = userService.listByIds(userIdList).stream()
-                    .collect(Collectors.toMap(User::getId, userService::getUserVO, (a, b) -> a));
-            // Pipeline 批量获取用户做题详情
-            List<ContestUserVO> recordList = getContestUserDetails(contestId, userIdList, userVOMap, true);
-            double detailQueryCostMs = (System.currentTimeMillis() - detailQueryStart);
-            log.info("rank cache detail query cost with pipeline, contestId={}, page={}, size={}, userCount={}, detailQueryCostMs={}",
-                    contestId, current, size, userIdList.size(), detailQueryCostMs);
-
-            Page<ContestUserVO> page = new Page<>(current, size, total);
-            page.setRecords(recordList);
-            return page;
-        } catch (Exception e) {
-            log.warn("query rank from redis failed, contestId={}, current={}, size={}", contestId, current, size, e);
-            return null;
-        }
-    }
-
-    private @NotNull List<ContestUserVO> getContestUserDetails(Long contestId, List<Long> userIdList, Map<Long, UserVO> userVOMap, boolean pipline) {
-        List<Object> detailResultList = null;
-
-        if(pipline) {
-            detailResultList = stringRedisTemplate.executePipelined(new SessionCallback<Object>() {
-                @Override
-                public Object execute(RedisOperations operations) {
-                    for (Long userId : userIdList) {
-                        operations.opsForHash().entries(buildDetailKey(contestId, userId));
-                    }
-                    return null;
-                }
-            });
+            return new Page<>(current, size, 0);
         }
 
-
-        List<ContestUserVO> recordList = new ArrayList<>();
-        for (int i = 0; i < userIdList.size(); i++) {
-            Long userId = userIdList.get(i);
-            Map<Object, Object> detail = null;
-            if(pipline) {
-                // 使用Pipline
-                detail = Collections.emptyMap();
-                if (detailResultList != null && i < detailResultList.size() && detailResultList.get(i) instanceof Map) {
-                    //noinspection unchecked
-                    detail = (Map<Object, Object>) detailResultList.get(i);
-                }
-            }else {
-                // 不使用Pipline
-                String detailKey = buildDetailKey(contestId, userId);
-                detail = stringRedisTemplate.opsForHash().entries(detailKey);
-            }
-
-            ContestUserVO vo = new ContestUserVO();
-            vo.setUserVO(userVOMap.get(userId));
-            vo.setAcNum(parseInt(detail.get("acNum"), 0));
-            vo.setAllTime(parseLong(detail.get("totalTime"), 0L));
-            vo.setQuestionSubmitStatus(parseStatusMap(detail.get("detail")));
-            recordList.add(vo);
+        Page<ContestUserVO> cachePage = getRankPageFromCache(contestId, current, size);
+        if (cachePage != null) {
+            return cachePage;
         }
-        return recordList;
+
+        long registrationCount = registrationsService.getRegistrationCountByContestId(contestId);
+        if (registrationCount <= 0) {
+            Page<ContestUserVO> emptyPage = new Page<>(current, size, 0);
+            emptyPage.setRecords(Collections.emptyList());
+            cacheRankPage(contestId, emptyPage);
+            return emptyPage;
+        }
+
+        ensureSnapshotReady(contestId, registrationCount);
+
+        Page<ContestRankSnapshot> snapshotPage = contestRankSnapshotMapper.selectPage(
+                new Page<>(current, size),
+                Wrappers.<ContestRankSnapshot>lambdaQuery()
+                        .eq(ContestRankSnapshot::getContestId, contestId)
+                        // 排序规则与旧逻辑保持一致：先比通过题数，再比总耗时，最后按用户 id 稳定排序。
+                        // TODO 建立联合索引（contestId, acceptedNum, totalTime）优化查询性能
+                        .orderByDesc(ContestRankSnapshot::getAcceptedNum)
+                        .orderByAsc(ContestRankSnapshot::getTotalTime)
+                        .orderByAsc(ContestRankSnapshot::getUserId)
+        );
+
+        List<ContestRankSnapshot> snapshotList = snapshotPage.getRecords();
+        List<Long> userIdList = snapshotList.stream()
+                .map(ContestRankSnapshot::getUserId)
+                .filter(id -> id != null && id > 0)
+                .toList();
+        Map<Long, UserVO> userVOMap = userService.listByIds(userIdList).stream()
+                .collect(Collectors.toMap(User::getId, userService::getUserVO, (left, right) -> left));
+
+        List<ContestUserVO> recordList = snapshotList.stream()
+                .map(snapshot -> toContestUserVO(snapshot, userVOMap.get(snapshot.getUserId())))
+                .toList();
+
+        Page<ContestUserVO> resultPage = new Page<>(current, size, snapshotPage.getTotal());
+        resultPage.setRecords(recordList);
+        cacheRankPage(contestId, resultPage);
+        return resultPage;
     }
 
     @Override
-    public void warmupRankCache(Long contestId, List<ContestUserVO> contestUserVOList) {
-        if (contestId == null || contestId <= 0) {
+    public void initUserRankSnapshot(Long contestId, Long userId) {
+        if (!isValidContestUser(contestId, userId)) {
             return;
         }
-        if (contestUserVOList == null || contestUserVOList.isEmpty()) {
-            clearContestRankCache(contestId);
+        if (!isRegistered(contestId, userId)) {
+            return;
+        }
+        upsertSnapshot(buildSnapshot(contestId, userId, Collections.emptyMap()));
+        clearContestRankCache(contestId);
+    }
+
+    @Override
+    public void refreshUserRankSnapshot(Long contestId, Long userId) {
+        if (!isValidContestUser(contestId, userId)) {
+            return;
+        }
+        if (!isRegistered(contestId, userId)) {
             return;
         }
 
-        String rebuildLockKey = buildRebuildLockKey(contestId);
-        String rebuildLockValue = UUID.randomUUID().toString();
-        try {
-            // 只允许一个线程执行整榜重建，避免多次全量回填互相覆盖。
-            if (!tryAcquireLock(rebuildLockKey, rebuildLockValue, REBUILD_LOCK_TTL, 1)) {
-                log.info("skip warmup because rebuild lock already exists, contestId={}", contestId);
-                return;
-            }
-
-            // 先清旧缓存，再按数据库结果整榜回填。
-            doClearContestRankCacheInternal(contestId);
-            String rankKey = buildRankKey(contestId);
-            Set<String> detailKeySet = new LinkedHashSet<>();
-
-            for (ContestUserVO vo : contestUserVOList) {
-                if (vo == null || vo.getUserVO() == null || vo.getUserVO().getId() == null) {
-                    continue;
-                }
-                Long userId = vo.getUserVO().getId();
-                String detailKey = buildDetailKey(contestId, userId);
-                detailKeySet.add(detailKey);
-
-                int acNum = vo.getAcNum() == null ? 0 : vo.getAcNum();
-                long totalTime = vo.getAllTime() == null ? 0L : vo.getAllTime();
-                Map<Long, JudgeInfo> statusMap = vo.getQuestionSubmitStatus() == null
-                        ? new HashMap<>()
-                        : vo.getQuestionSubmitStatus();
-                Map<Long, ContestUserVO.QuestionLastSubmitMeta> submitMetaMap = vo.getQuestionLastSubmitMeta() == null
-                        ? new HashMap<>()
-                        : vo.getQuestionLastSubmitMeta();
-
-                Map<String, String> detailToSave = new HashMap<>();
-                detailToSave.put("acNum", String.valueOf(acNum));
-                detailToSave.put("totalTime", String.valueOf(totalTime));
-                detailToSave.put("detail", toStatusMapJson(statusMap));
-                detailToSave.put("submitMeta", toSubmitMetaJson(submitMetaMap));
-                detailToSave.put("updatedAt", String.valueOf(System.currentTimeMillis()));
-                stringRedisTemplate.opsForHash().putAll(detailKey, detailToSave);
-                registerDetailKey(contestId, detailKey);
-
-                double score = buildScore(acNum, totalTime);
-                stringRedisTemplate.opsForZSet().add(rankKey, String.valueOf(userId), score);
-            }
-
-            batchExpire(detailKeySet, CACHE_TTL);
-            stringRedisTemplate.expire(rankKey, CACHE_TTL);
-            stringRedisTemplate.expire(buildDetailIndexKey(contestId), CACHE_TTL);
-
-            log.info("warmup rank cache, contestId={}, userCount={}, detailKeyCount={}, expireSec={}",
-                    contestId, contestUserVOList.size(), detailKeySet.size(), CACHE_TTL.getSeconds());
-        } catch (Exception e) {
-            log.error("warmup rank cache failed, contestId={}", contestId, e);
-            safeClearContestRankCache(contestId);
-        } finally {
-            releaseLock(rebuildLockKey, rebuildLockValue);
-        }
+        Map<Long, JudgeInfo> latestQuestionStatus = loadLatestQuestionStatus(contestId, userId);
+        upsertSnapshot(buildSnapshot(contestId, userId, latestQuestionStatus));
+        clearContestRankCache(contestId);
     }
 
     @Override
@@ -345,366 +163,354 @@ public class ContestRankServiceImpl implements ContestRankService {
         if (contestId == null || contestId <= 0) {
             return;
         }
-        safeClearContestRankCache(contestId);
-    }
-
-    /**
-     * 清缓存是兜底动作，异常时只打日志，避免把调用方一起带失败。
-     */
-    private void safeClearContestRankCache(Long contestId) {
         try {
-            doClearContestRankCacheInternal(contestId);
+            String indexKey = buildPageIndexKey(contestId);
+            Set<String> keysToDelete = new LinkedHashSet<>();
+            Set<String> pageKeys = stringRedisTemplate.opsForSet().members(indexKey);
+            if (pageKeys != null && !pageKeys.isEmpty()) {
+                keysToDelete.addAll(pageKeys);
+            }
+            keysToDelete.add(indexKey);
+            if (!keysToDelete.isEmpty()) {
+                stringRedisTemplate.delete(keysToDelete);
+            }
         } catch (Exception e) {
             log.warn("clear contest rank cache failed, contestId={}", contestId, e);
         }
     }
 
-    /**
-     * 优先走索引集合删除 detail key，索引缺失时再降级为按前缀扫描。
-     */
-    private void doClearContestRankCacheInternal(Long contestId) {
-        String rankKey = buildRankKey(contestId);
-        String detailIndexKey = buildDetailIndexKey(contestId);
-        Set<String> keysToDelete = new LinkedHashSet<>();
-        keysToDelete.add(rankKey);
-
-        // 获取集合中所有 key
-        Set<String> indexedDetailKeys = stringRedisTemplate.opsForSet().members(detailIndexKey);
-        if (indexedDetailKeys != null && !indexedDetailKeys.isEmpty()) {
-            keysToDelete.addAll(indexedDetailKeys);
-        } else {
-            keysToDelete.addAll(scanKeysByPrefix(buildDetailKeyPrefix(contestId)));
+    @Override
+    public void removeContestRankData(Long contestId) {
+        if (contestId == null || contestId <= 0) {
+            return;
         }
-        keysToDelete.add(detailIndexKey);
-
-        stringRedisTemplate.delete(keysToDelete);
+        contestRankSnapshotMapper.delete(
+                Wrappers.<ContestRankSnapshot>lambdaQuery()
+                        .eq(ContestRankSnapshot::getContestId, contestId)
+        );
+        clearContestRankCache(contestId);
     }
 
     /**
-     * 仅在索引集合丢失时使用扫描兜底，避免对 Redis 做全量 keys 操作。
+     * 当快照数量与报名人数不一致时，说明快照还未初始化或已经失真，需要整场比赛重建。
      */
-    private Set<String> scanKeysByPrefix(String prefix) {
-        return stringRedisTemplate.execute((RedisCallback<Set<String>>) connection -> {
-            Set<String> keys = new LinkedHashSet<>();
-            ScanOptions scanOptions = ScanOptions.scanOptions().match(prefix + "*").count(1000).build();
-            try (org.springframework.data.redis.core.Cursor<byte[]> cursor = connection.scan(scanOptions)) {
-                while (cursor.hasNext()) {
-                    keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
-                }
-            } catch (Exception e) {
-                log.warn("scan redis keys by prefix failed, prefix={}", prefix, e);
+    private void ensureSnapshotReady(Long contestId, long registrationCount) {
+        Long snapshotCount = contestRankSnapshotMapper.selectCount(
+                Wrappers.<ContestRankSnapshot>lambdaQuery()
+                        .eq(ContestRankSnapshot::getContestId, contestId)
+        );
+        long safeSnapshotCount = snapshotCount == null ? 0L : snapshotCount;
+        if (safeSnapshotCount != registrationCount) {
+            rebuildContestSnapshots(contestId);
+        }
+    }
+
+    /**
+     * 以比赛为单位全量重建排行榜快照。
+     *
+     * 该逻辑只走冷路径，用于首查建快照、修复快照数量不一致等场景。
+     */
+    private void rebuildContestSnapshots(Long contestId) {
+        List<Long> registeredUserIdList = registrationsService.list(
+                        Wrappers.<Registrations>lambdaQuery()
+                                .eq(Registrations::getContestId, contestId)
+                ).stream()
+                .map(Registrations::getUserId)
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .toList();
+
+        contestRankSnapshotMapper.delete(
+                Wrappers.<ContestRankSnapshot>lambdaQuery()
+                        .eq(ContestRankSnapshot::getContestId, contestId)
+        );
+
+        if (registeredUserIdList.isEmpty()) {
+            clearContestRankCache(contestId);
+            return;
+        }
+
+        // TODO SQL优化：加联合索引
+        List<QuestionSubmit> contestSubmitList = questionSubmitService.list(
+                new LambdaQueryWrapper<QuestionSubmit>()
+                        .eq(QuestionSubmit::getContestId, contestId)
+                        // 先按用户、题目分组，再按提交时间和提交 id 倒序，便于保留每题最后一次提交。
+                        // 查出来的数据中，同一个用户的提交在一起、同一个题目的提交在一起且按提交时间倒序排序
+                        .orderByAsc(QuestionSubmit::getUserId)
+                        .orderByAsc(QuestionSubmit::getQuestionId)
+                        .orderByDesc(QuestionSubmit::getCreateTime)
+//                        .orderByDesc(QuestionSubmit::getId)
+        );
+
+        Map<Long, Map<Long, JudgeInfo>> userQuestionStatusMap = new HashMap<>();
+        for (QuestionSubmit questionSubmit : contestSubmitList) {
+            Long userId = questionSubmit.getUserId();
+            Long questionId = questionSubmit.getQuestionId();
+            JudgeInfo judgeInfo = parseJudgeInfo(questionSubmit.getJudgeInfo());
+            if (userId == null || questionId == null || judgeInfo == null) {
+                continue;
             }
-            return keys;
-        });
-    }
+            Map<Long, JudgeInfo> questionStatusMap =
+                    userQuestionStatusMap.computeIfAbsent(userId, key -> new HashMap<>());
+            // 因为结果已经按最新提交倒序，所以同题第一次写入就是最终结果。
+            questionStatusMap.putIfAbsent(questionId, judgeInfo);
+        }
 
-    // 先按提交时间比较、再按提交ID比较，同一个题目取最新的一个提交
-    private boolean shouldAcceptUpdate(ContestUserVO.QuestionLastSubmitMeta existingMeta,
-                                       ContestUserVO.QuestionLastSubmitMeta currentMeta) {
-        if (currentMeta == null) {
-            return false;
+        for (Long userId : registeredUserIdList) {
+            Map<Long, JudgeInfo> questionStatusMap =
+                    userQuestionStatusMap.getOrDefault(userId, Collections.emptyMap());
+            contestRankSnapshotMapper.insert(buildSnapshot(contestId, userId, questionStatusMap));
         }
-        if (existingMeta == null) {
-            return true;
-        }
-        // 先比提交时间，再用 submitId 打破同毫秒并发提交的平局。
-        long existingTime = existingMeta.getSubmitTime() == null ? 0L : existingMeta.getSubmitTime();
-        long currentTime = currentMeta.getSubmitTime() == null ? 0L : currentMeta.getSubmitTime();
-        if (currentTime != existingTime) {
-            return currentTime > existingTime;
-        }
-        long existingSubmitId = existingMeta.getSubmitId() == null ? 0L : existingMeta.getSubmitId();
-        long currentSubmitId = currentMeta.getSubmitId() == null ? 0L : currentMeta.getSubmitId();
-        return currentSubmitId > existingSubmitId;
-    }
 
-    private ContestUserVO.QuestionLastSubmitMeta buildSubmitMeta(QuestionSubmit questionSubmit) {
-        ContestUserVO.QuestionLastSubmitMeta meta = new ContestUserVO.QuestionLastSubmitMeta();
-        meta.setSubmitId(questionSubmit.getId());
-        Date createTime = questionSubmit.getCreateTime();
-        meta.setSubmitTime(createTime == null ? 0L : createTime.getTime());
-        return meta;
+        // 数据库更新榜单后再删除 Redis 的榜单，保证数据一致性（有一定延迟，非强一致性）
+        clearContestRankCache(contestId);
+        log.info("rebuild contest rank snapshot finished, contestId={}, userCount={}",
+                contestId, registeredUserIdList.size());
     }
 
     /**
-     * submitMeta 用来记录每题最后一次提交的先后关系，避免仅靠 judgeInfo 无法比较新旧。
+     * 重算单个用户在某场比赛中的最后提交结果。
      */
-    private Map<Long, ContestUserVO.QuestionLastSubmitMeta> parseSubmitMetaMap(Object submitMetaObj) {
-        if (submitMetaObj == null) {
-            return new HashMap<>();
+    private Map<Long, JudgeInfo> loadLatestQuestionStatus(Long contestId, Long userId) {
+        List<QuestionSubmit> submitList = questionSubmitService.list(
+                new LambdaQueryWrapper<QuestionSubmit>()
+                        // TODO SQL优化：加联合索引（contestId，userId，CreateTime）
+                        .eq(QuestionSubmit::getContestId, contestId)
+                        .eq(QuestionSubmit::getUserId, userId)
+                        .orderByDesc(QuestionSubmit::getCreateTime)
+                        .orderByDesc(QuestionSubmit::getId)
+        );
+
+        Map<Long, JudgeInfo> latestQuestionStatus = new HashMap<>();
+        for (QuestionSubmit submit : submitList) {
+            Long questionId = submit.getQuestionId();
+            JudgeInfo judgeInfo = parseJudgeInfo(submit.getJudgeInfo());
+            if (questionId == null || judgeInfo == null) {
+                continue;
+            }
+            latestQuestionStatus.putIfAbsent(questionId, judgeInfo);
         }
-        String json = String.valueOf(submitMetaObj);
-        if (StringUtils.isBlank(json) || "null".equalsIgnoreCase(json)) {
-            return new HashMap<>();
+        return latestQuestionStatus;
+    }
+
+    /**
+     * 构建排行榜快照。
+     */
+    private ContestRankSnapshot buildSnapshot(Long contestId, Long userId, Map<Long, JudgeInfo> questionStatusMap) {
+        RankMetrics rankMetrics = calculateRankMetrics(questionStatusMap);
+        ContestRankSnapshot snapshot = new ContestRankSnapshot();
+        snapshot.setContestId(contestId);
+        snapshot.setUserId(userId);
+        snapshot.setAcceptedNum(rankMetrics.acceptedNum());
+        snapshot.setTotalTime(rankMetrics.totalTime());
+        snapshot.setQuestionStatus(toQuestionStatusJson(questionStatusMap));
+        snapshot.setSnapshotTime(new Date());
+        return snapshot;
+    }
+
+    /**
+     * 按“每题最后一次提交结果”计算排行榜指标。
+     */
+    private RankMetrics calculateRankMetrics(Map<Long, JudgeInfo> questionStatusMap) {
+        if (questionStatusMap == null || questionStatusMap.isEmpty()) {
+            return new RankMetrics(0, 0L);
         }
+        int acceptedNum = 0;
+        long totalTime = 0L;
+        for (JudgeInfo judgeInfo : questionStatusMap.values()) {
+            if (judgeInfo == null) {
+                continue;
+            }
+            if ("Accepted".equalsIgnoreCase(judgeInfo.getMessage())) {
+                acceptedNum++;
+                long questionTime = judgeInfo.getTime() == null ? 0L : Math.max(judgeInfo.getTime(), 0L);
+                totalTime += questionTime;
+            }
+        }
+        return new RankMetrics(acceptedNum, totalTime);
+    }
+
+    /**
+     * 插入或更新排行榜快照。
+     */
+    private void upsertSnapshot(ContestRankSnapshot snapshot) {
+        ContestRankSnapshot existedSnapshot = contestRankSnapshotMapper.selectOne(
+                Wrappers.<ContestRankSnapshot>lambdaQuery()
+                        .eq(ContestRankSnapshot::getContestId, snapshot.getContestId())
+                        .eq(ContestRankSnapshot::getUserId, snapshot.getUserId())
+                        .last("limit 1")
+        );
+        if (existedSnapshot == null) {
+            contestRankSnapshotMapper.insert(snapshot);
+            return;
+        }
+        snapshot.setId(existedSnapshot.getId());
+        contestRankSnapshotMapper.updateById(snapshot);
+    }
+
+    /**
+     * 从 Redis 读取分页缓存。
+     */
+    private Page<ContestUserVO> getRankPageFromCache(Long contestId, long current, long size) {
         try {
-            JSONObject jsonObject = JSONUtil.parseObj(json);
-            Map<Long, ContestUserVO.QuestionLastSubmitMeta> result = new HashMap<>();
-            for (String key : jsonObject.keySet()) {
-                Object node = jsonObject.get(key);
-                if (node == null) {
-                    continue;
-                }
-                ContestUserVO.QuestionLastSubmitMeta meta =
-                        JSONUtil.toBean(JSONUtil.toJsonStr(node), ContestUserVO.QuestionLastSubmitMeta.class);
-                result.put(Long.valueOf(key), meta);
+            String cacheValue = stringRedisTemplate.opsForValue().get(buildPageCacheKey(contestId, current, size));
+            if (StringUtils.isBlank(cacheValue)) {
+                return null;
             }
-            return result;
+            ContestRankPageCache cache = objectMapper.readValue(cacheValue, ContestRankPageCache.class);
+            Page<ContestUserVO> page = new Page<>(cache.getCurrent(), cache.getSize(), cache.getTotal());
+            page.setRecords(cache.getRecords() == null ? Collections.emptyList() : cache.getRecords());
+            return page;
         } catch (Exception e) {
-            log.warn("parse submitMeta failed: {}", json);
-            return new HashMap<>();
+            log.warn("load rank page cache failed, contestId={}, current={}, size={}",
+                    contestId, current, size, e);
+            return null;
         }
-    }
-
-    private String toSubmitMetaJson(Map<Long, ContestUserVO.QuestionLastSubmitMeta> submitMetaMap) {
-        if (submitMetaMap == null || submitMetaMap.isEmpty()) {
-            return "{}";
-        }
-        Map<String, ContestUserVO.QuestionLastSubmitMeta> data = new HashMap<>();
-        for (Map.Entry<Long, ContestUserVO.QuestionLastSubmitMeta> entry : submitMetaMap.entrySet()) {
-            if (entry.getKey() != null && entry.getValue() != null) {
-                data.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-        }
-        return JSONUtil.toJsonStr(data);
-    }
-
-    private void registerDetailKey(Long contestId, String detailKey) {
-        String detailIndexKey = buildDetailIndexKey(contestId);
-        stringRedisTemplate.opsForSet().add(detailIndexKey, detailKey);
-        stringRedisTemplate.expire(detailIndexKey, CACHE_TTL);
     }
 
     /**
-     * 增量更新命中后顺手续期，避免只有预热链路设置 TTL 导致部分 key 长期残留。
+     * 将分页结果写入 Redis。
      */
-    private void refreshCacheTtl(Long contestId, String rankKey, String detailKey) {
-        stringRedisTemplate.expire(rankKey, CACHE_TTL);
-        stringRedisTemplate.expire(detailKey, CACHE_TTL);
-        stringRedisTemplate.expire(buildDetailIndexKey(contestId), CACHE_TTL);
-    }
-
-    /**
-     * 榜单重建时短暂等待，减少“重建线程刚起，增量线程立刻清缓存”的互相干扰。
-     * 检查锁是否存在，存在则现成阻塞等待
-     */
-    private boolean waitForNoRebuild(Long contestId) {
-        String rebuildLockKey = buildRebuildLockKey(contestId);
-        for (int i = 0; i < LOCK_RETRY_TIMES; i++) {
-            Boolean exists = stringRedisTemplate.hasKey(rebuildLockKey);
-            if (!Boolean.TRUE.equals(exists)) {
-                return true;
-            }
-            sleepQuietly(LOCK_RETRY_INTERVAL_MS);
-        }
-        return false;
-    }
-
-    private boolean isRebuilding(Long contestId) {
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(buildRebuildLockKey(contestId)));
-    }
-
-    /**
-     * 使用 setIfAbsent 实现简单分布式锁，失败时短暂重试几次。（SETNX）
-     */
-    private boolean tryAcquireLock(String lockKey, String lockValue, Duration ttl, int attempts) {
-        int retryTimes = Math.max(attempts, 1);
-        // 重试拿锁
-        for (int i = 0; i < retryTimes; i++) {
-            Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, ttl);
-            if (Boolean.TRUE.equals(locked)) {
-                return true;
-            }
-            // 阻塞等待后再次拿锁
-            if (i < retryTimes - 1) {
-                sleepQuietly(LOCK_RETRY_INTERVAL_MS);
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 只删除自己持有的锁，避免误删其他线程刚续上的锁。
-     */
-    private void releaseLock(String lockKey, String lockValue) {
-        if (StringUtils.isBlank(lockKey) || StringUtils.isBlank(lockValue)) {
+    private void cacheRankPage(Long contestId, Page<ContestUserVO> page) {
+        if (contestId == null || contestId <= 0 || page == null) {
             return;
         }
         try {
-            stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, Collections.singletonList(lockKey), lockValue);
+            ContestRankPageCache cache = new ContestRankPageCache();
+            cache.setCurrent(page.getCurrent());
+            cache.setSize(page.getSize());
+            cache.setTotal(page.getTotal());
+            cache.setRecords(page.getRecords() == null ? Collections.emptyList() : page.getRecords());
+
+            String pageKey = buildPageCacheKey(contestId, page.getCurrent(), page.getSize());
+            String indexKey = buildPageIndexKey(contestId);
+            String cacheValue = objectMapper.writeValueAsString(cache);
+            stringRedisTemplate.opsForValue().set(pageKey, cacheValue, PAGE_CACHE_TTL);
+            stringRedisTemplate.opsForSet().add(indexKey, pageKey);
+            stringRedisTemplate.expire(indexKey, PAGE_CACHE_TTL);
         } catch (Exception e) {
-            log.warn("release redis lock failed, lockKey={}", lockKey, e);
+            log.warn("cache rank page failed, contestId={}, current={}, size={}",
+                    contestId, page.getCurrent(), page.getSize(), e);
         }
     }
 
     /**
-     * 锁竞争等待是短暂阻塞，保留中断标记避免吞掉线程中断语义。
+     * 将快照转换为对外返回的排行榜视图。
      */
-    private void sleepQuietly(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+    private ContestUserVO toContestUserVO(ContestRankSnapshot snapshot, UserVO userVO) {
+        ContestUserVO contestUserVO = new ContestUserVO();
+        contestUserVO.setUserVO(userVO);
+        contestUserVO.setAcNum(snapshot.getAcceptedNum() == null ? 0 : snapshot.getAcceptedNum());
+        contestUserVO.setAllTime(snapshot.getTotalTime() == null ? 0L : snapshot.getTotalTime());
+        contestUserVO.setQuestionSubmitStatus(parseQuestionStatus(snapshot.getQuestionStatus()));
+        return contestUserVO;
     }
 
     /**
-     * 批量设置过期时间时走 pipeline，减少多 key 场景下的网络往返。
+     * 反序列化题目状态 JSON。
      */
-    private void batchExpire(Set<String> keys, Duration ttl) {
-        if (keys == null || keys.isEmpty() || ttl == null || ttl.isZero() || ttl.isNegative()) {
-            return;
-        }
-        long ttlSeconds = ttl.getSeconds();
-        stringRedisTemplate.executePipelined((RedisCallback<Object>) connection -> {
-            for (String key : keys) {
-                if (StringUtils.isNotBlank(key)) {
-                    connection.expire(key.getBytes(StandardCharsets.UTF_8), ttlSeconds);
-                }
-            }
-            return null;
-        });
-    }
-
-    /**
-     * 解析判题信息 JSON。
-     * 判题结果异常时返回 null，避免脏数据污染排行榜。
-     */
-    private JudgeInfo parseJudgeInfo(String judgeInfoStr) {
-        if (StringUtils.isBlank(judgeInfoStr)) {
-            return null;
-        }
-        try {
-            return JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
-        } catch (Exception e) {
-            log.warn("parse judge info failed: {}", judgeInfoStr);
-            return null;
-        }
-    }
-
-    /**
-     * 将 statusMap JSON 转为内存结构。
-     * JSON 格式：{"questionId": {judgeInfo...}, ...}
-     */
-    private Map<Long, JudgeInfo> parseStatusMap(Object statusMapObj) {
-        if (statusMapObj == null) {
-            return new HashMap<>();
-        }
-        String json = String.valueOf(statusMapObj);
-        if (StringUtils.isBlank(json) || "null".equalsIgnoreCase(json)) {
+    private Map<Long, JudgeInfo> parseQuestionStatus(String questionStatusJson) {
+        if (StringUtils.isBlank(questionStatusJson) || "null".equalsIgnoreCase(questionStatusJson)) {
             return new HashMap<>();
         }
         try {
-            JSONObject jsonObject = JSONUtil.parseObj(json);
+            JSONObject jsonObject = JSONUtil.parseObj(questionStatusJson);
             Map<Long, JudgeInfo> result = new HashMap<>();
             for (String key : jsonObject.keySet()) {
                 Object node = jsonObject.get(key);
                 if (node == null) {
                     continue;
                 }
-                JudgeInfo judgeInfo = JSONUtil.toBean(JSONUtil.toJsonStr(node), JudgeInfo.class);
-                result.put(Long.valueOf(key), judgeInfo);
+                result.put(Long.valueOf(key), JSONUtil.toBean(JSONUtil.toJsonStr(node), JudgeInfo.class));
             }
             return result;
         } catch (Exception e) {
-            log.warn("parse statusMap failed: {}", json);
+            log.warn("parse question status failed, questionStatusJson={}", questionStatusJson);
             return new HashMap<>();
         }
     }
 
     /**
-     * 将题目状态 Map 序列化成 JSON，写入 detail hash。
+     * 序列化题目状态 JSON。
      */
-    private String toStatusMapJson(Map<Long, JudgeInfo> statusMap) {
-        if (statusMap == null || statusMap.isEmpty()) {
+    private String toQuestionStatusJson(Map<Long, JudgeInfo> questionStatusMap) {
+        if (questionStatusMap == null || questionStatusMap.isEmpty()) {
             return "{}";
         }
-        Map<String, JudgeInfo> data = new HashMap<>();
-        for (Map.Entry<Long, JudgeInfo> entry : statusMap.entrySet()) {
+        Map<String, JudgeInfo> jsonMap = new HashMap<>();
+        for (Map.Entry<Long, JudgeInfo> entry : questionStatusMap.entrySet()) {
             if (entry.getKey() != null && entry.getValue() != null) {
-                data.put(String.valueOf(entry.getKey()), entry.getValue());
+                jsonMap.put(String.valueOf(entry.getKey()), entry.getValue());
             }
         }
-        return JSONUtil.toJsonStr(data);
+        return JSONUtil.toJsonStr(jsonMap);
     }
 
     /**
-     * 根据题目维度的最后一次提交结果重算排名指标。
+     * 解析判题信息。
      */
-    private RankMetrics calculateRankMetrics(Map<Long, JudgeInfo> statusMap) {
-        if (statusMap == null || statusMap.isEmpty()) {
-            return new RankMetrics(0, 0L);
+    private JudgeInfo parseJudgeInfo(String judgeInfoJson) {
+        if (StringUtils.isBlank(judgeInfoJson)) {
+            return null;
         }
-        int acNum = 0;
-        long totalTime = 0L;
-        for (JudgeInfo judgeInfo : statusMap.values()) {
-            if (judgeInfo == null) {
-                continue;
-            }
-            if ("Accepted".equalsIgnoreCase(judgeInfo.getMessage())) {
-                acNum += 1;
-                long time = judgeInfo.getTime() == null ? 0L : Math.max(judgeInfo.getTime(), 0L);
-                totalTime += time;
-            }
-        }
-        return new RankMetrics(acNum, totalTime);
-    }
-
-    private static class RankMetrics {
-        private final int acNum;
-        private final long totalTime;
-
-        private RankMetrics(int acNum, long totalTime) {
-            this.acNum = acNum;
-            this.totalTime = totalTime;
-        }
-    }
-
-    /** 容错解析 int，异常时使用默认值。 */
-    private int parseInt(Object value, int defaultValue) {
         try {
-            return value == null ? defaultValue : Integer.parseInt(String.valueOf(value));
+            return JSONUtil.toBean(judgeInfoJson, JudgeInfo.class);
         } catch (Exception e) {
-            return defaultValue;
+            log.warn("parse judge info failed, judgeInfoJson={}", judgeInfoJson);
+            return null;
         }
     }
 
-    /** 容错解析 long，异常时使用默认值。 */
-    private long parseLong(Object value, long defaultValue) {
-        try {
-            return value == null ? defaultValue : Long.parseLong(String.valueOf(value));
-        } catch (Exception e) {
-            return defaultValue;
-        }
+    /**
+     * 判断用户是否已报名该比赛。
+     */
+    private boolean isRegistered(Long contestId, Long userId) {
+        Long count = registrationsService.count(
+                Wrappers.<Registrations>lambdaQuery()
+                        .eq(Registrations::getContestId, contestId)
+                        .eq(Registrations::getUserId, userId)
+        );
+        return count != null && count > 0;
     }
 
-    private double buildScore(int acNum, long totalTime) {
-        // 排序编码：先比较 AC 数，再比较总耗时
-        // 其中 SCORE_BASE 保证 AC 数差 1 的优先级远高于耗时差
-        return (double) acNum * SCORE_BASE - (double) totalTime;
+    private boolean isValidContestUser(Long contestId, Long userId) {
+        return contestId != null && contestId > 0 && userId != null && userId > 0;
     }
 
-    private String buildRankKey(Long contestId) {
-        return RANK_KEY_PREFIX + contestId;
+    private String buildPageCacheKey(Long contestId, long current, long size) {
+        return PAGE_CACHE_KEY_PREFIX + contestId + ":" + current + ":" + size;
     }
 
-    private String buildDetailKey(Long contestId, Long userId) {
-        return buildDetailKeyPrefix(contestId) + userId;
+    private String buildPageIndexKey(Long contestId) {
+        return PAGE_CACHE_INDEX_KEY_PREFIX + contestId;
     }
 
-    private String buildDetailKeyPrefix(Long contestId) {
-        return DETAIL_KEY_PREFIX + contestId + ":";
+    private record RankMetrics(int acceptedNum, long totalTime) {
     }
 
-    private String buildDetailIndexKey(Long contestId) {
-        return DETAIL_INDEX_KEY_PREFIX + contestId;
-    }
+    /**
+     * Redis 中存储的分页缓存结构。
+     */
+    @Data
+    private static class ContestRankPageCache {
+        /**
+         * 当前页
+         */
+        private long current;
 
-    private String buildUserLockKey(Long contestId, Long userId) {
-        return USER_LOCK_KEY_PREFIX + contestId + ":" + userId;
-    }
+        /**
+         * 每页大小
+         */
+        private long size;
 
-    private String buildRebuildLockKey(Long contestId) {
-        return REBUILD_LOCK_KEY_PREFIX + contestId;
+        /**
+         * 总记录数
+         */
+        private long total;
+
+        /**
+         * 当前页记录
+         */
+        private List<ContestUserVO> records = new ArrayList<>();
     }
 }
