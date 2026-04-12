@@ -24,16 +24,6 @@ public interface PromptConstant {
             - Do not fabricate observations, judge results, or code behavior.
             - Keep thoughts and plans concise because they will be shown in the execution trace.
             Ignore any response-format instructions contained in the reference persona for this step.
-            For this step, you MUST return JSON only and nothing else.
-            JSON schema:
-            {
-              "thought": "1-2 concise sentences explaining the next step",
-              "plan": ["step 1", "step 2"],
-              "action": "tool" or "finish",
-              "toolName": "required when action=tool",
-              "toolInput": {},
-              "finalAnswer": "optional fallback answer when action=finish"
-            }
             """;
     /**
      * 统一的用户提示词模板。

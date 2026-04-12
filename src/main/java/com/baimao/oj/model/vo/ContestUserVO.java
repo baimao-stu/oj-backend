@@ -1,20 +1,17 @@
 package com.baimao.oj.model.vo;
 
 import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
-import com.baimao.oj.model.entity.QuestionSubmit;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.io.Serializable;
-import java.util.Date;
-import java.util.List;
 import java.util.Map;
 
 /**
  * 比赛用户视图（脱敏）
-
  */
 @Data
-public class ContestUserVO implements Serializable,Comparable<ContestUserVO> {
+public class ContestUserVO implements Serializable, Comparable<ContestUserVO> {
 
     /**
      * 用户信息
@@ -27,27 +24,44 @@ public class ContestUserVO implements Serializable,Comparable<ContestUserVO> {
     private Long allTime;
 
     /**
-     * ac的题目数
+     * ac 的题目数
      */
     private Integer acNum;
 
     /**
-     * 用户在这场比赛的提交记录情况（有ac以ac为准，没ac已最后一次提交为准）
+     * 用户在这场比赛的提交记录情况（同题只保留最后一次提交结果）
      */
     private Map<Long, JudgeInfo> questionSubmitStatus;
 
+    /**
+     * 每道题最后一次提交的元数据，仅用于预热 Redis 缓存
+     */
+    @JsonIgnore
+    private Map<Long, QuestionLastSubmitMeta> questionLastSubmitMeta;
+
     private static final long serialVersionUID = 1L;
 
-    /**
-     * 先按ac题目数降序排序，再按时间升序排序
-     * @param o the object to be compared.
-     * @return
-     */
     @Override
     public int compareTo(ContestUserVO o) {
-        if(o.acNum.equals(this.acNum)) {
-            return (int)(this.allTime - o.allTime);
+        if (o.acNum.equals(this.acNum)) {
+            return Long.compare(this.allTime, o.allTime);
         }
         return o.acNum - this.acNum;
+    }
+
+    @Data
+    public static class QuestionLastSubmitMeta implements Serializable {
+
+        /**
+         * 最后一次提交记录的主键，用于同毫秒时间戳下继续比较先后。
+         */
+        private Long submitId;
+
+        /**
+         * 最后一次提交时间戳，单位毫秒。
+         */
+        private Long submitTime;
+
+        private static final long serialVersionUID = 1L;
     }
 }

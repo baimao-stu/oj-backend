@@ -364,8 +364,13 @@ public class QuestionController {
         long size = questionSubmitQueryRequest.getPageSize();
         //1. 查询到的是从数据库查到的题目提交列表，要做脱敏返回VO
 
+        long startTime = System.currentTimeMillis();
+
         Page<QuestionSubmit> questionSubmitPage = questionSubmitService.page(new Page<>(current, size),
                 questionSubmitService.getQueryWrapper(questionSubmitQueryRequest));
+
+        long endTime = System.currentTimeMillis();
+        log.info("查询题目提交列表耗时：{}ms", endTime - startTime);
 
         //将查到的题目提交列表脱敏为VO
         Page<QuestionSubmitVO> questionSubmitVOPage = questionSubmitService.getQuestionSubmitVOPage(questionSubmitPage, loginUser);

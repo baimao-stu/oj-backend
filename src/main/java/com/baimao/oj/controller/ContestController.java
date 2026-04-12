@@ -1,7 +1,5 @@
 package com.baimao.oj.controller;
 
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import com.baimao.oj.annotation.AuthCheck;
 import com.baimao.oj.common.BaseResponse;
 import com.baimao.oj.common.DeleteRequest;
@@ -10,7 +8,6 @@ import com.baimao.oj.common.ResultUtils;
 import com.baimao.oj.constant.UserConstant;
 import com.baimao.oj.exception.BusinessException;
 import com.baimao.oj.exception.ThrowUtils;
-import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.dto.contest.*;
 import com.baimao.oj.model.entity.*;
 import com.baimao.oj.model.vo.*;
@@ -20,9 +17,9 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.context.annotation.Description;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.annotation.Resource;
@@ -56,10 +53,13 @@ public class ContestController {
     @Resource
     private UserService userService;
 
+    @Resource
+    private ContestRankService contestRankService;
+
     // region 增删改查
 
     /**
-     * 创建竞赛
+        * 创建竞赛
      *
      * @param contestAddRequest
      * @param request
@@ -85,7 +85,7 @@ public class ContestController {
     }
 
     /**
-     * 删除
+        * 删除
      *
      * @param deleteRequest
      * @param request
@@ -108,14 +108,14 @@ public class ContestController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         /**
-         * 1.删除竞赛本身
+         * 1. 删除竞赛本身
          */
         boolean b = contestService.removeById(id);
         if (!b) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR);
         }
         /**
-         * 2.级联删除该竞赛下的题目提交记录
+         * 2. 级联删除该竞赛下的题目提交记录
          */
         LambdaQueryWrapper<QuestionSubmit> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(QuestionSubmit::getContestId, id);
@@ -126,7 +126,7 @@ public class ContestController {
         }
 
         /**
-         * 3.级联删除该竞赛下的题目（竞赛-题目表）
+         * 3. 级联删除该竞赛下的题目（竞赛-题目表）
          */
         LambdaQueryWrapper<ContestQuestion> queryWrapper2 = new LambdaQueryWrapper<>();
         queryWrapper2.eq(ContestQuestion::getContestId, id);
@@ -137,11 +137,13 @@ public class ContestController {
             throw new BusinessException(ErrorCode.OPERATION_ERROR);
         }
 
+        removeContestRankDataAfterCommit(id);
+
         return ResultUtils.success(remove);
     }
 
     /**
-     * 更新（仅管理员，edit是用户也可访问修改自己创建的问题）
+        * 更新（仅管理员，edit 是用户也可访问修改自己创建的问题）
      *
      * @param contestUpdateRequest
      * @return
@@ -165,11 +167,14 @@ public class ContestController {
         Contest oldContest = contestService.getById(id);
         ThrowUtils.throwIf(oldContest == null, ErrorCode.NOT_FOUND_ERROR);
         boolean result = contestService.updateById(contest);
+        if (result) {
+            safeRemoveContestRankData(id);
+        }
         return ResultUtils.success(result);
     }
 
     /**
-     * 根据 id 获取
+        * 根据 id 获取
      *
      * @param id
      * @return
@@ -192,7 +197,7 @@ public class ContestController {
     }
 
     /**
-     * 根据 id 获取（封装用户信息）
+        * 根据 id 获取（封装用户信息）
      *
      * @param id
      * @return
@@ -211,7 +216,7 @@ public class ContestController {
 
 
     /**
-     * 分页获取列表（封装类）
+        * 分页获取列表（封装类）
      *
      * @param contestQueryRequest
      * @param request
@@ -227,7 +232,7 @@ public class ContestController {
 
         User loginUser = userService.getLoginUser(request);
         QueryWrapper<Contest> queryWrapper = contestService.getQueryWrapper(contestQueryRequest, request);
-        /** 比赛是公开的，或者是自己创建的，才能查看*/
+        /** 比赛是公开的，或者是自己创建的，才能查看 */
         queryWrapper.and(wrapper -> {
             wrapper.eq("isPublic",1).or().eq("userId",loginUser.getId());
         });
@@ -238,7 +243,7 @@ public class ContestController {
     }
 
     /**
-     * 分页获取当前用户创建的资源列表
+        * 分页获取当前用户创建的资源列表
      *
      * @param contestQueryRequest
      * @param request
@@ -257,7 +262,7 @@ public class ContestController {
 
         User loginUser = userService.getLoginUser(request);
         QueryWrapper<Contest> queryWrapper = contestService.getQueryWrapper(contestQueryRequest, request);
-        /** 比赛是自己创建的，才能查看*/
+        /** 比赛是自己创建的，才能查看 */
         queryWrapper.eq("userId",loginUser.getId());
         Page<Contest> contestPage = contestService.page(new Page<>(current, size),
                 queryWrapper);
@@ -266,7 +271,7 @@ public class ContestController {
 
 
     /**
-     * 编辑（用户），与上面的update差不多
+        * 编辑（用户），与上面的 update 差不多
      *
      * @param contestEditRequest
      * @param request
@@ -296,19 +301,23 @@ public class ContestController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = contestService.editById(contest,contestEditRequest.getQuestionIdList());
+        if (result) {
+            safeRemoveContestRankData(id);
+        }
         return ResultUtils.success(result);
     }
 
 //-------------------------用户报名接口----------------------------
 
     /**
-     * 用户报名
+        * 用户报名
      *
      * @param registrationsAddRequest
      * @param request
      * @return
      */
     @PostMapping("/add/registration")
+    @Transactional
     public BaseResponse<Long> addRegistration(@RequestBody RegistrationsAddRequest registrationsAddRequest, HttpServletRequest request) {
         if (registrationsAddRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -319,19 +328,55 @@ public class ContestController {
         User loginUser = userService.getLoginUser(request);
         registration.setUserId(loginUser.getId());
         registration.setJoinTime(new Date());
-        registration.setRank(0);    //排名默认设置为0
+        registration.setRank(0);    // 排名默认设置为 0
 
         registrationsService.validRegistration(registration, true);
 
         boolean result = registrationsService.save(registration);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
+        // 报名成功后先初始化一条空快照，保证零提交用户也能进入排行榜。
+//        contestRankService.initUserRankSnapshot(registration.getContestId(), registration.getUserId());
+        initContestRankAfterCommit(registration);
+
         Long registrationId = registration.getId();
 
         return ResultUtils.success(registrationId);
     }
 
     /**
-     * 获取 当前用户 某个比赛 的报名记录（即用户是否报名了某个比赛）
+     * 排名记录初始化放到事务提交后执行，避免数据库回滚时 Redis 已被提前更新。
+     */
+    private void initContestRankAfterCommit(Registrations registration) {
+        if (registration == null || registration.getContestId() == null || registration.getContestId() <= 0) {
+            return;
+        }
+        // 非事务上下文直接执行，兼容后续可能的复用场景。
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            safeInitContestRank(registration);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                safeInitContestRank(registration);
+            }
+        });
+    }
+
+    /**
+     * 刷新缓存失败不影响提交流程，避免 Redis 短暂异常把主业务链路打断。
+     */
+    private void safeInitContestRank(Registrations registration) {
+        try {
+            contestRankService.initUserRankSnapshot(registration.getContestId(), registration.getUserId());
+        } catch (Exception e) {
+            log.warn("refresh contest rank snapshot after commit failed, registrationId={}", registration.getId(), e);
+        }
+    }
+
+    /**
+        * 获取当前用户某个比赛的报名记录（即用户是否报名了某个比赛）
      *
      * @param contestId
      * @param request
@@ -351,7 +396,7 @@ public class ContestController {
     }
 
     /**
-     * 获取当去用户的报名的比赛列表
+        * 获取当前用户报名的比赛列表
      *
      * @param contestQueryRequest
      * @param request
@@ -368,7 +413,7 @@ public class ContestController {
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(request);
-        /** 当前用户的所有报名的contestId */
+        /** 当前用户的所有报名 contestId */
         LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(Registrations::getUserId,loginUser.getId());
         List<Long> contestIdList = registrationsService.list(queryWrapper)
@@ -384,14 +429,14 @@ public class ContestController {
     }
 
     /**
-     * 获取某个比赛下的排名情况（所有报名的用户及其做题情况）
+        * 获取某个比赛下的排名情况（所有报名用户及其做题情况）
      *
      * @param contestUserVOQueryRequest
      * @param request
      * @return
      */
     @PostMapping("/list/rankByContestIdByPage")
-    public BaseResponse<Page<ContestUserVO>> listRankByContestIdByPage(@RequestBody ContestUserVOQueryRequest contestUserVOQueryRequest, HttpServletRequest request) {
+    public BaseResponse<Page<ContestRankSnapshotVO>> listRankByContestIdByPage(@RequestBody ContestUserVOQueryRequest contestUserVOQueryRequest, HttpServletRequest request) {
         if (contestUserVOQueryRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -399,103 +444,51 @@ public class ContestController {
         long size = contestUserVOQueryRequest.getPageSize();
         Long contestId = contestUserVOQueryRequest.getContestId();
         // 限制爬虫
-        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
-        LambdaQueryWrapper<Registrations> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Registrations::getContestId,contestId);
-        //报名该比赛的用户id列表
-        List<Long> userIdList = registrationsService.list(queryWrapper)
-                .stream().map(Registrations::getUserId).collect(Collectors.toList());
-        LambdaQueryWrapper<User> queryWrapper2 = new LambdaQueryWrapper<>();
-        queryWrapper2.in(User::getId,userIdList);
-        //报名该比赛的用户列表
-        List<User> userList = userService.list(queryWrapper2);
-        //报名该比赛的用户VO列表
-        List<UserVO> userVOList = userService.getUserVO(userList);
-
-
-
-        List<ContestUserVO> contestUserVOList = new ArrayList<>();
-        for(int i = 0;i < userVOList.size();i ++) {
-            Map<Long,Long> questionIdACMilli = new HashMap<>();       //题目id与其在ac的情况下最短的消耗时间
-            Map<Long,String> questionIdJudgeMsg = new HashMap<>(); //题目id与其最后的判题状态（有ac以ac优先）
-            Map<Long, JudgeInfo> questionSubmitStatus = new HashMap<>(); //用户在这场比赛的提交记录情况（有ac以ac为准，没ac已最后一次提交为准）
-
-            ContestUserVO contestUserVO = new ContestUserVO();
-            UserVO userVO = userVOList.get(i);
-            //本次比赛该用户的所有提交记录
-            List<QuestionSubmit> questionSubmits = questionSubmitService.getQuestionSubmitPageByCIdAndUId(contestId, userVO.getId());
-            int acNum = 0;        //通过的题目数量
-            long allTime = 0l;  //消耗总时长
-
-            /** 1.首先过滤ac的判题结果 */
-            for(int j = 0;j < questionSubmits.size();j ++) {
-                QuestionSubmit questionSubmit = questionSubmits.get(j);
-                String judgeInfoStr = questionSubmit.getJudgeInfo();
-                JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
-                if(judgeInfo == null) continue;
-                Long questionId = questionSubmit.getQuestionId();
-                Long time = judgeInfo.getTime();
-                String judgeMsg = judgeInfo.getMessage();
-                //ac才记录时间
-                if("Accepted".equals(judgeMsg)) {
-                    if(questionIdACMilli.get(questionId) != null) {
-                        Long oldTime = questionIdACMilli.get(questionId);
-                        if(time < oldTime) {
-                            questionIdACMilli.put(questionId,time);
-                            allTime -= oldTime - time;
-                            questionSubmitStatus.put(questionId,judgeInfo);
-                        }
-                    }else {
-                        questionIdACMilli.put(questionId,time);
-                        allTime += time;
-                        questionSubmitStatus.put(questionId,judgeInfo);
-                        acNum ++;
-                    }
-                    questionIdJudgeMsg.put(questionId,judgeMsg);
-                }
-            }
-            /** 2.过滤非ac的判题结果 */
-            for(int j = 0;j < questionSubmits.size();j ++) {
-                QuestionSubmit questionSubmit = questionSubmits.get(j);
-                String judgeInfoStr = questionSubmit.getJudgeInfo();
-                JudgeInfo judgeInfo = JSONUtil.toBean(judgeInfoStr, JudgeInfo.class);
-                if(judgeInfo == null) continue;
-                Long questionId = questionSubmit.getQuestionId();
-                String judgeMsg = judgeInfo.getMessage();
-                //非ac记录判题结果
-                if(!"Accepted".equals(judgeMsg)) {
-                    /**
-                     * 1.非ac的情况，如同个题目还有ac的情况，以ac的情况为准
-                     * 2.非ac的情况，由于提交记录已经按提交时间倒序排序过，以最后提交的一种情况为准
-                     */
-                    if(questionIdACMilli.get(questionId) == null && questionIdJudgeMsg.get(questionId) == null) {
-                        questionIdJudgeMsg.put(questionId,judgeMsg);
-                        questionSubmitStatus.put(questionId,judgeInfo);
-                    }
-                }
-            }
-
-            log.info("用户id:" + userVO.getId() + "在比赛id:" + contestId + "的提交情况");
-            log.info("题目id与时间：" + questionIdACMilli + " " + allTime);
-            log.info("题目id与判题结果：" + questionIdJudgeMsg);
-
-            contestUserVO.setUserVO(userVO);        //用户信息
-            contestUserVO.setAllTime(allTime);  //总消耗时间
-            contestUserVO.setAcNum(acNum);          //ac的题目数
-            contestUserVO.setQuestionSubmitStatus(questionSubmitStatus);    //做题情况
-            contestUserVOList.add(contestUserVO);
-
-            log.info(contestUserVO.toString());
-        }
-
-        Collections.sort(contestUserVOList);
-        Page<ContestUserVO> contestUserVOPage = new Page<>(current,size);
-        contestUserVOPage.setRecords(contestUserVOList);
-        return ResultUtils.success(contestUserVOPage);
+//        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        // 排行榜统一下沉到排行榜服务，控制器不再做全量聚合。
+        Page<ContestRankSnapshotVO> contestRankSnapshotVOPage = contestRankService.listContestRankPage(contestId, current, size);
+        return ResultUtils.success(contestRankSnapshotVOPage);
     }
 
     /**
-     * 获取某个比赛的报名人数
+        * 删除比赛时等待事务提交后再清缓存，避免数据库回滚导致缓存被误删。
+     */
+    private void removeContestRankDataAfterCommit(Long contestId) {
+        if (contestId == null || contestId <= 0) {
+            return;
+        }
+        /**
+         * 当前线程是否“激活了事务同步机制”，只要是在 @Transactional 方法执行过程中（方法还没结束），这个返回值一定是 true
+         */
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            safeRemoveContestRankData(contestId);
+            return;
+        }
+        /**
+         * Spring 的事务上下文绑定在当前线程（ThreadLocal）上
+         * 注册的 TransactionSynchronization 回调，也只会绑定到当前正在执行的这个事务中
+         */
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                safeRemoveContestRankData(contestId);
+            }
+        });
+    }
+
+    /**
+        * 缓存清理失败只记录日志，避免影响控制器返回。
+     */
+    private void safeRemoveContestRankData(Long contestId) {
+        try {
+            contestRankService.removeContestRankData(contestId);
+        } catch (Exception e) {
+            log.warn("remove contest rank data failed, contestId={}", contestId, e);
+        }
+    }
+
+    /**
+        * 获取某个比赛的报名人数
      * @param contestId
      * @param request
      * @return
@@ -507,7 +500,7 @@ public class ContestController {
     }
 
     /**
-     * 获取某个比赛的题目数量
+        * 获取某个比赛的题目数量
      * @param contestId
      * @param request
      * @return
@@ -526,7 +519,7 @@ public class ContestController {
 
     //-------------------------竞赛-题目接口----------------------------
     /**
-     * 获取某个竞赛下的题目列表
+        * 获取某个竞赛下的题目列表
      *
      * @param contestId
      * @param request
@@ -537,7 +530,7 @@ public class ContestController {
         if(contestId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        //获取竞赛下的所有题目id
+        // 获取竞赛下的所有题目 id
         LambdaQueryWrapper<ContestQuestion> queryWrapper1 = new LambdaQueryWrapper<>();
         queryWrapper1.eq(ContestQuestion::getContestId,contestId);
         List<ContestQuestion> contestQuestionList = contestQuestionService.list(queryWrapper1);
@@ -547,15 +540,15 @@ public class ContestController {
         if(questionIdList.size() == 0) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR,"比赛题目为空");
         }
-        log.info("竞赛下的题目id列表：" + questionIdList);
+        log.info("竞赛下的题目 id 列表：{}", questionIdList);
 
-        //获取竞赛下的所有题目
+        // 获取竞赛下的所有题目
         LambdaQueryWrapper<Question> queryWrapper2 = new LambdaQueryWrapper<>();
         queryWrapper2.in(Question::getId,questionIdList);
-        /** 按查到的题目序号排序 */
+        /** 按查询到的题目序号排序 */
         queryWrapper2.last("order by field(id," + String.join(",",questionIdList) + ")");
         List<Question> questionList = questionService.list(queryWrapper2);
-        log.info("竞赛下的题目列表：" + questionList);
+        log.info("竞赛下的题目列表：{}", questionList);
 
         Page<Question> questionPage = new Page();
         questionPage.setRecords(questionList);
