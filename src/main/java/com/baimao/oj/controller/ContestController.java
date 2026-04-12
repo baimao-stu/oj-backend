@@ -317,6 +317,7 @@ public class ContestController {
      * @return
      */
     @PostMapping("/add/registration")
+    @Transactional
     public BaseResponse<Long> addRegistration(@RequestBody RegistrationsAddRequest registrationsAddRequest, HttpServletRequest request) {
         if (registrationsAddRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -333,11 +334,45 @@ public class ContestController {
 
         boolean result = registrationsService.save(registration);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
         // 报名成功后先初始化一条空快照，保证零提交用户也能进入排行榜。
-        contestRankService.initUserRankSnapshot(registration.getContestId(), registration.getUserId());
+//        contestRankService.initUserRankSnapshot(registration.getContestId(), registration.getUserId());
+        initContestRankAfterCommit(registration);
+
         Long registrationId = registration.getId();
 
         return ResultUtils.success(registrationId);
+    }
+
+    /**
+     * 排名记录初始化放到事务提交后执行，避免数据库回滚时 Redis 已被提前更新。
+     */
+    private void initContestRankAfterCommit(Registrations registration) {
+        if (registration == null || registration.getContestId() == null || registration.getContestId() <= 0) {
+            return;
+        }
+        // 非事务上下文直接执行，兼容后续可能的复用场景。
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            safeInitContestRank(registration);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                safeInitContestRank(registration);
+            }
+        });
+    }
+
+    /**
+     * 刷新缓存失败不影响提交流程，避免 Redis 短暂异常把主业务链路打断。
+     */
+    private void safeInitContestRank(Registrations registration) {
+        try {
+            contestRankService.initUserRankSnapshot(registration.getContestId(), registration.getUserId());
+        } catch (Exception e) {
+            log.warn("refresh contest rank snapshot after commit failed, registrationId={}", registration.getId(), e);
+        }
     }
 
     /**

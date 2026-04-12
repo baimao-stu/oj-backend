@@ -66,6 +66,9 @@ create table if not exists question_submit
     index idx_userId (userId)
 ) comment '题目提交';
 
+-- 优化题目提交查询
+create index idx_userId_questionId_createTime on question_submit(isDelete, userId, questionId, createTime);
+
 # 默认添加一个管理员账户admin，密码12345678（加密）
 insert into user(userAccount, userPassword, userName, userRole)
 values ('admin', 'b2da29e9d11a96e368c9ca52cc815218', 'admin', 'admin');
@@ -138,6 +141,9 @@ create table if not exists contest_rank_snapshot
     unique key uk_contest_user (contestId, userId),
     index idx_contest_rank (contestId, acceptedNum, totalTime, userId)
 ) comment '比赛排行榜快照表' collate = utf8mb4_unicode_ci;
+
+-- 优化排行榜查询
+create index idx_contest_rank on contest_rank_snapshot(isDelete, contestId, acceptedNum DESC, totalTime ASC, userId ASC);
 
 -- AI 会话表
 create table if not exists ai_chat_session
