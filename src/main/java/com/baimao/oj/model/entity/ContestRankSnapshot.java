@@ -1,10 +1,13 @@
 package com.baimao.oj.model.entity;
 
+import com.baimao.oj.judge.codesangbox.model.JudgeInfo;
 import com.baimao.oj.model.vo.ContestUserVO;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -16,7 +19,7 @@ import java.util.Map;
  *
  * Redis 是实时榜单真源，该表仅保存异步刷库后的聚合快照。
  */
-@TableName(value = "contest_rank_snapshot")
+@TableName(value = "contest_rank_snapshot", autoResultMap = true)
 @Data
 public class ContestRankSnapshot implements Serializable {
 
@@ -49,7 +52,8 @@ public class ContestRankSnapshot implements Serializable {
     /**
      * 每道题最后一次提交的判题结果，JSON 结构：{"题目id": JudgeInfo}
      */
-    private String questionStatus;
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Map<Long, JudgeInfo> questionStatus;
 
     /**
      * 最近一次刷新快照的时间
@@ -74,6 +78,7 @@ public class ContestRankSnapshot implements Serializable {
     /**
      * 每道题最后一次提交的元数据，仅用于 Redis 快照恢复，不落库
      */
+    @JsonIgnore
     @TableField(exist = false)
     private Map<Long, ContestUserVO.QuestionLastSubmitMeta> questionLastSubmitMeta;
 

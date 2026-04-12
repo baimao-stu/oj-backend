@@ -401,7 +401,7 @@ public class ContestController {
      * @return
      */
     @PostMapping("/list/rankByContestIdByPage")
-    public BaseResponse<Page<ContestUserVO>> listRankByContestIdByPage(@RequestBody ContestUserVOQueryRequest contestUserVOQueryRequest, HttpServletRequest request) {
+    public BaseResponse<Page<ContestRankSnapshotVO>> listRankByContestIdByPage(@RequestBody ContestUserVOQueryRequest contestUserVOQueryRequest, HttpServletRequest request) {
         if (contestUserVOQueryRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -409,10 +409,10 @@ public class ContestController {
         long size = contestUserVOQueryRequest.getPageSize();
         Long contestId = contestUserVOQueryRequest.getContestId();
         // 限制爬虫
-        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+//        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
         // 排行榜统一下沉到排行榜服务，控制器不再做全量聚合。
-        Page<ContestUserVO> contestUserVOPage = contestRankService.listContestRankPage(contestId, current, size);
-        return ResultUtils.success(contestUserVOPage);
+        Page<ContestRankSnapshotVO> contestRankSnapshotVOPage = contestRankService.listContestRankPage(contestId, current, size);
+        return ResultUtils.success(contestRankSnapshotVOPage);
     }
 
     /**

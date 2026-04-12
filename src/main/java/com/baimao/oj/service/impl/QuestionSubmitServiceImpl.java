@@ -67,6 +67,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
     private JudgeService judgeService;
 
     @Resource
+    @Lazy
     private ContestRankService contestRankService;
 
     /**
@@ -133,8 +134,14 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"题目更新失败");
         }
 
-        // 提交成功后，事务提交后再刷新 Redis 排行缓存
-        refreshContestRankAfterCommit(questionSubmitResponse);
+        // 提交成功后，事务同步管理刷新 Redis 排行缓存
+//        refreshContestRankAfterCommit(questionSubmitResponse);
+        
+        // 这里可以直接操作redis（除非redis操作后面有可能抛异常导致数据库回滚的操作）
+        contestRankService.refreshUserRankSnapshot(questionSubmitResponse);
+
+//        int i = 0;
+//        int i1 = 1 / i;
 
         return questionSubmitResponse;
     }

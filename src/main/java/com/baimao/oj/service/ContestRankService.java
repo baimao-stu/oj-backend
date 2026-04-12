@@ -1,7 +1,7 @@
 package com.baimao.oj.service;
 
 import com.baimao.oj.model.entity.QuestionSubmit;
-import com.baimao.oj.model.vo.ContestUserVO;
+import com.baimao.oj.model.vo.ContestRankSnapshotVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 /**
@@ -17,7 +17,7 @@ public interface ContestRankService {
     /**
      * 分页查询比赛排行榜。
      */
-    Page<ContestUserVO> listContestRankPage(Long contestId, long current, long size);
+    Page<ContestRankSnapshotVO> listContestRankPage(Long contestId, long current, long size);
 
     /**
      * 在报名成功后初始化该用户的排行榜数据。
