@@ -71,6 +71,13 @@
 - 会话自动归档
 
 ---
+![首页](img/index.png "首页")
+![做题页面](img/questionView.png "做题页面")
+![竞赛页面](img/contest.png "竞赛页面")
+![排行榜](img/rank.png "排行榜")
+![添加题目页面](img/addQuestion.png "添加题目页面")
+
+---
 
 ## 技术栈
 
