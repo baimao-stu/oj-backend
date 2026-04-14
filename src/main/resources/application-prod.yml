@@ -1,22 +1,14 @@
 spring:
-  application:
-    name: oj-backend
-  config:
-    activate:
-      on-profile: prod
-  mvc:
-    pathmatch:
-      matching-strategy: ant_path_matcher
   session:
     timeout: 2592000
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://120.76.250.225:3306/yuoj?characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: baimao
-    password: sztu@2078
+    url: jdbc:mysql://mysql:3306/${MYSQL_DB:oj}?characterEncoding=utf8&serverTimezone=GMT%2B8&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
   data:
     redis:
-      host: ${REDIS_HOST:127.0.0.1}
+      host: ${REDIS_HOST:redis}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:123456}
       timeout: 3000ms
@@ -25,43 +17,9 @@ spring:
       api-key: ${DASHSCOPE_API_KEY:sk-89fd0b23909d43809e5ffc3df4ca3445}
       chat:
         options:
-          model: ${DASHSCOPE_MODEL:qwen-max}
+          model: ${DASHSCOPE_MODEL:qwen3-max-2025-09-23}
           temperature: 0.2
-  servlet:
-    multipart:
-      max-file-size: 10MB
-
-server:
-  address: 0.0.0.0
-  port: 50000
-  servlet:
-    context-path: /api
-    session:
-      cookie:
-        max-age: 2592000
-
-mybatis-plus:
-  configuration:
-    map-underscore-to-camel-case: false
-    log-impl: ""
-  global-config:
-    db-config:
-      logic-delete-field: isDelete
-      logic-delete-value: 1
-      logic-not-delete-value: 0
-
-knife4j:
-  enable: true
-  openapi:
-    title: "API Docs"
-    version: 1.0
-    group:
-      default:
-        api-rule: package
-        api-rule-resources:
-          - com.baimao.oj.controller
-          - com.baimao.oj.ai.controller
 
 codesandbox:
   type: remote
-  url: http://120.76.250.225:50001/executeCode
+  url: ${CODESANDBOX_URL:http://codesandbox:50001/executeCode}

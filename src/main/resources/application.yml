@@ -22,7 +22,7 @@ spring:
       api-key: sk-89fd0b23909d43809e5ffc3df4ca3445
       chat:
         options:
-          model: qwen-max
+          model: qwen3-max-2025-09-23
           # temperature: 0.2
   servlet:
     multipart:
