@@ -14,6 +14,15 @@
 
 ---
 
+## 前端和代码沙箱
+前端项目：
+<https://github.com/baimao-stu/oj-ai-frontend>
+
+代码沙箱：
+<https://github.com/baimao-stu/codesandbox>
+
+---
+
 ## 核心功能
 
 ### 1. 用户模块
@@ -163,13 +172,6 @@ oj-backend
 初始化时可直接执行根目录下的 `create_table.sql`。
 
 ---
-
-## 前端和代码沙箱
-前端项目：
-<https://github.com/baimao-stu/oj-ai-frontend>
-
-代码沙箱：
-<https://github.com/baimao-stu/codesandbox>
 
 ## 运行环境
 
