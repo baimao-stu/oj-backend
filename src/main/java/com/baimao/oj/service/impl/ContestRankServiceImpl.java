@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -95,6 +96,12 @@ public class ContestRankServiceImpl implements ContestRankService {
     /** 兜底过期时间（1 天）。 */
     private static final long FALLBACK_EXPIRE_SECONDS = 24L * 60L * 60L;
 
+    /** 冷路径查库互斥锁键前缀，完整键格式：contest:rank:db:fallback:lock:{contestId} */
+    private static final String SNAPSHOT_FALLBACK_LOCK_KEY_PREFIX = "contest:rank:db:fallback:lock:";
+
+    /** 冷路径查库互斥锁过期时间（秒），防止异常场景锁无法释放。 */
+    private static final long SNAPSHOT_FALLBACK_LOCK_EXPIRE_SECONDS = 10L;
+
     /**
      * Lua 脚本：原子更新单用户排行榜数据。
      *
@@ -108,6 +115,9 @@ public class ContestRankServiceImpl implements ContestRankService {
      */
     private static final DefaultRedisScript<Long> UPSERT_RANK_SCRIPT = new DefaultRedisScript<>();
 
+    /** Lua 脚本：原子释放互斥锁，仅删除自己持有的锁。 */
+    private static final DefaultRedisScript<Long> RELEASE_MUTEX_LOCK_SCRIPT = new DefaultRedisScript<>();
+
     static {
         UPSERT_RANK_SCRIPT.setResultType(Long.class);
         UPSERT_RANK_SCRIPT.setScriptText("""
@@ -117,6 +127,14 @@ public class ContestRankServiceImpl implements ContestRankService {
                                 redis.call('EXPIRE', KEYS[1], ARGV[5])
                                 redis.call('EXPIRE', KEYS[2], ARGV[5])
                 return 1
+                """);
+
+        RELEASE_MUTEX_LOCK_SCRIPT.setResultType(Long.class);
+        RELEASE_MUTEX_LOCK_SCRIPT.setScriptText("""
+                if redis.call('GET', KEYS[1]) == ARGV[1] then
+                    return redis.call('DEL', KEYS[1])
+                end
+                return 0
                 """);
     }
 
@@ -172,7 +190,7 @@ public class ContestRankServiceImpl implements ContestRankService {
         Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
         long safeTotal = total == null ? 0L : total;
         if (safeTotal <= 0) {
-            return loadSnapshotRankPage(contestId, current, size);
+            return loadSnapshotRankPageWithMutex(contestId, current, size, 0L);
         }
 
         long start = (current - 1) * size;
@@ -182,7 +200,7 @@ public class ContestRankServiceImpl implements ContestRankService {
             if (start >= safeTotal) {
                 return buildEmptyPage(current, size, safeTotal);
             }
-            return loadSnapshotRankPage(contestId, current, size);
+            return loadSnapshotRankPageWithMutex(contestId, current, size, safeTotal);
         }
 
         List<Long> userIdList = memberSet.stream()
@@ -269,6 +287,24 @@ public class ContestRankServiceImpl implements ContestRankService {
         Page<ContestRankSnapshotVO> resultPage = new Page<>(current, size, queriedPage.getTotal());
         resultPage.setRecords(records);
         return resultPage;
+    }
+
+    /**
+     * 冷路径互斥兜底：只允许一个线程查库，其余线程直接返回空分页。
+     */
+    private Page<ContestRankSnapshotVO> loadSnapshotRankPageWithMutex(Long contestId, long current, long size, long emptyTotal) {
+        String lockKey = buildSnapshotFallbackLockKey(contestId);
+        String lockValue = tryAcquireMutex(lockKey);
+        if (lockValue == null) {
+            log.info("skip snapshot fallback query because mutex lock not acquired, contestId={}, current={}, size={}",
+                    contestId, current, size);
+            return buildEmptyPage(current, size, emptyTotal);
+        }
+        try {
+            return loadSnapshotRankPage(contestId, current, size);
+        } finally {
+            releaseMutex(lockKey, lockValue);
+        }
     }
 
     /**
@@ -366,8 +402,23 @@ public class ContestRankServiceImpl implements ContestRankService {
         Long zsetSize = stringRedisTemplate.opsForZSet().zCard(buildRankZsetKey(contestId));
         long safeZsetSize = zsetSize == null ? 0L : zsetSize;
         if (safeZsetSize != registrationCount) {
-//             rebuildContestRankData(contestId);
-            rebuildContestRankDataFromSnapshot(contestId);
+            String lockKey = buildSnapshotFallbackLockKey(contestId);
+            String lockValue = tryAcquireMutex(lockKey);
+            if (lockValue == null) {
+                log.info("skip rebuild rank data because mutex lock not acquired, contestId={}, expectedSize={}, currentSize={}",
+                        contestId, registrationCount, safeZsetSize);
+                return;
+            }
+            try {
+                Long latestZsetSize = stringRedisTemplate.opsForZSet().zCard(buildRankZsetKey(contestId));
+                long latestSafeZsetSize = latestZsetSize == null ? 0L : latestZsetSize;
+                if (latestSafeZsetSize != registrationCount) {
+//                    rebuildContestRankData(contestId);
+                    rebuildContestRankDataFromSnapshot(contestId);
+                }
+            } finally {
+                releaseMutex(lockKey, lockValue);
+            }
         }
     }
     /**
@@ -1070,6 +1121,42 @@ public class ContestRankServiceImpl implements ContestRankService {
     /** 构造用户明细 Hash 键。 */
     private String buildDetailKey(Long contestId, Long userId) {
         return DETAIL_KEY_PREFIX + contestId + ":" + userId;
+    }
+
+    /** 构造冷路径查库互斥锁键。 */
+    private String buildSnapshotFallbackLockKey(Long contestId) {
+        return SNAPSHOT_FALLBACK_LOCK_KEY_PREFIX + contestId;
+    }
+
+    /** 尝试获取互斥锁，失败返回 null。 */
+    private String tryAcquireMutex(String lockKey) {
+        if (StringUtils.isBlank(lockKey)) {
+            return null;
+        }
+        String lockValue = UUID.randomUUID().toString();
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(
+                lockKey,
+                lockValue,
+                SNAPSHOT_FALLBACK_LOCK_EXPIRE_SECONDS,
+                TimeUnit.SECONDS
+        );
+        return Boolean.TRUE.equals(locked) ? lockValue : null;
+    }
+
+    /** 安全释放互斥锁，仅删除自己持有的锁。 */
+    private void releaseMutex(String lockKey, String lockValue) {
+        if (StringUtils.isBlank(lockKey) || StringUtils.isBlank(lockValue)) {
+            return;
+        }
+        try {
+            stringRedisTemplate.execute(
+                    RELEASE_MUTEX_LOCK_SCRIPT,
+                    List.of(lockKey),
+                    lockValue
+            );
+        } catch (Exception e) {
+            log.warn("release mutex lock failed, lockKey={}", lockKey, e);
+        }
     }
 
     /**

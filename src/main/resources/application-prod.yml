@@ -23,3 +23,12 @@ spring:
 codesandbox:
   type: remote
   url: ${CODESANDBOX_URL:http://codesandbox:50001/executeCode}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    prometheus:
+      access: unrestricted

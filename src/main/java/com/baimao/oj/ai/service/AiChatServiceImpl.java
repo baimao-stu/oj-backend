@@ -41,6 +41,8 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 
@@ -176,11 +178,13 @@ public class AiChatServiceImpl implements AiChatService {
     /**
      * 非流式对话入口。
      */
+    @Transactional
     public AiChatMessageVO chat(AiChatSendRequest aiChatSendRequest, HttpServletRequest request) {
         return doChat(aiChatSendRequest, request, null);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class, propagation = Propagation.REQUIRED)
     /**
      * 流式对话入口。
      * 内部仍然复用统一的 doChat 逻辑，只是在结果返回阶段拆成 SSE 事件。
@@ -307,9 +311,11 @@ public class AiChatServiceImpl implements AiChatService {
 //            saveViolation(loginUser.getId(), session.getId(), null, "call AI failed", userMessage);
 //        }
 
+        // TODO 加锁？
         saveMessage(session.getId(), ROLE_USER, modeEnum.getValue(), userMessage, null);
         AiChatMessage assistantMessage = saveMessage(session.getId(), ROLE_ASSISTANT, modeEnum.getValue(),
                 assistantContent, JSONUtil.toJsonStr(toolEvents));
+        // TODO 加锁？
 
         session.setStatus(AiSessionStatusEnum.ACTIVE.getValue());
         session.setDisableReason(null);
