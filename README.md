@@ -11,6 +11,16 @@
 - AI 对话助手与 SSE 流式返回
 - Agent 模式下的工具调用与上下文记忆
 - 远程代码沙箱判题能力
+
+---
+
+## 前端和代码沙箱
+前端项目：
+<https://github.com/baimao-stu/oj-ai-frontend>
+
+代码沙箱：
+<https://github.com/baimao-stu/codesandbox>
+
 ---
 
 ## 核心功能
@@ -162,13 +172,6 @@ oj-backend
 初始化时可直接执行根目录下的 `create_table.sql`。
 
 ---
-
-## 前端和代码沙箱
-前端项目：
-<https://github.com/baimao-stu/oj-ai-frontend>
-
-代码沙箱：
-<https://github.com/baimao-stu/codesandbox>
 
 ## 运行环境
 
