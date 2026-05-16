@@ -121,6 +121,7 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
 //            judgeService.doJudge(questionSubmitId);
 //        });
 
+        // ----- TODO 把这部分逻辑交给消息队列：重试机制 + 幂等处理 + 私信队列 -------
         QuestionSubmit questionSubmitResponse = judgeService.doJudge(questionSubmitId);
 
         // 修改题目的提交次数与通过次数
@@ -137,6 +138,8 @@ public class QuestionSubmitServiceImpl extends ServiceImpl<QuestionSubmitMapper,
 
         // 提交成功后，事务同步管理刷新 Redis 排行缓存
         refreshContestRankAfterCommit(questionSubmitResponse);
+
+        // ----- ------------------------------------------------------------------
         
         // 这里可以直接操作redis（除非redis操作后面有可能抛异常导致数据库回滚的操作）
 //        contestRankService.refreshUserRankSnapshot(questionSubmitResponse);

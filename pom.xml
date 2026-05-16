@@ -75,6 +75,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- rabbitmq：用于可靠异步同步比赛排行榜快照 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
         <!-- https://doc.xiaominfo.com/docs/quick-start -->
         <dependency>
             <groupId>com.github.xiaoymin</groupId>

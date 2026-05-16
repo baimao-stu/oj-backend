@@ -17,6 +17,17 @@ spring:
       port: 6379
       password: 123456
       timeout: 3000ms
+  # RabbitMQ 用于可靠异步同步比赛排行榜快照
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        # 排行榜快照消费者手动确认，写库成功后 ack，写库失败后 nack 进入死信队列
+        acknowledge-mode: manual
+        default-requeue-rejected: false
   ai:
     dashscope:
       api-key: sk-89fd0b23909d43809e5ffc3df4ca3445

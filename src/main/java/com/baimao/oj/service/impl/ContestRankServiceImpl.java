@@ -187,6 +187,9 @@ public class ContestRankServiceImpl implements ContestRankService {
         ensureRankDataReady(contestId, registrationCount);
 
         String zsetKey = buildRankZsetKey(contestId);
+        /** 布隆过滤器判断数据是否存在，存在再去查缓存、数据库（缓存穿透）*/
+
+        /**  */
         Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
         long safeTotal = total == null ? 0L : total;
         if (safeTotal <= 0) {
@@ -361,7 +364,7 @@ public class ContestRankServiceImpl implements ContestRankService {
         // 更新 Redis 的 ZSet 和 对应用户的 Hash key（榜单的事实维护由 redis 做）
         // 排行榜读取主要走 Redis，先写 Redis 可以保证榜单“立即可见”，用户体验最好。
         upsertRankData(contestId, userId, newContestRankSnapshotVO);
-        // 异步更新数据库快照 TODO 消息队列
+        // 异步更新数据库快照 TODO 消息队列（直接使用这里的异步，事务无法保证）
         contestRankSnapshotSyncService.syncSnapshotAsync(toSnapshot(contestId, userId, newContestRankSnapshotVO));
     }
 

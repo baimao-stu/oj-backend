@@ -12,6 +12,17 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:123456}
       timeout: 3000ms
+  # RabbitMQ 用于可靠异步同步比赛排行榜快照
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # 排行榜快照消费者手动确认，写库成功后 ack，写库失败后 nack 进入死信队列
+        acknowledge-mode: manual
+        default-requeue-rejected: false
   ai:
     dashscope:
       api-key: ${DASHSCOPE_API_KEY:sk-89fd0b23909d43809e5ffc3df4ca3445}
