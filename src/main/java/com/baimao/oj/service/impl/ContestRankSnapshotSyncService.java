@@ -28,7 +28,7 @@ public class ContestRankSnapshotSyncService {
     private ContestRankSnapshotMapper contestRankSnapshotMapper;
 
     @Resource
-    private RabbitTemplate rabbitTemplate;
+    private RabbitTemplate  rabbitTemplate;
 
     /**
      * 投递排行榜快照同步消息。
